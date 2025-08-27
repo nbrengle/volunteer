@@ -52,7 +52,7 @@ class TestDuplicateAssignmentPrevention:
     def test_assign_worker_to_shift_prevents_duplicates(self) -> None:
         """Test that assign_worker_to_shift method prevents duplicate assignments."""
         conference = ConferenceBuilder().build()
-        worker = WorkerBuilder().with_id("w1").with_max_shifts(5).build()
+        worker = WorkerBuilder().with_id("w1").build()
         shift = ShiftBuilder().with_id("s1").with_max_workers(3).build()
 
         conference.add_worker(worker)
@@ -86,7 +86,6 @@ class TestDuplicateAssignmentPrevention:
             min_shifts_per_worker=1,
             max_shifts_per_worker=2,
             max_preferences_per_worker=5,
-            preference_distribution="uniform",
         )
 
         conference = generator.generate_conference(
@@ -153,7 +152,7 @@ class TestTimeConflictDetection:
         conference = (
             ConferenceBuilder().with_simple_config(max_shifts_per_worker=10).build()
         )
-        worker = WorkerBuilder().with_id("w1").with_max_shifts(10).build()
+        worker = WorkerBuilder().with_id("w1").build()
         conference.add_worker(worker)
 
         # Base shift: 9 AM - 1 PM
@@ -250,7 +249,6 @@ class TestTimeConflictDetection:
             min_shifts_per_worker=1,
             max_shifts_per_worker=4,  # Allow workers to take multiple shifts
             max_preferences_per_worker=10,
-            preference_distribution="uniform",
         )
 
         # Generate a conference where shifts might overlap

@@ -10,6 +10,10 @@ repos:
     # Run the formatter.
     - id: ruff-format
       types_or: [ python, pyi ]
+- repo: https://github.com/facebook/pyrefly
+  rev: 0.30.0
+  hooks:
+    - id: pyrefly-typecheck
 - repo: local
   hooks:
   - id: mypy

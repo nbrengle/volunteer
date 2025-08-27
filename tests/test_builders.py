@@ -27,7 +27,6 @@ class ConferenceBuilder:
             min_shifts_per_worker=1,
             max_shifts_per_worker=5,
             max_preferences_per_worker=10,
-            preference_distribution="uniform",
         )
 
     def with_id(self, conference_id: str) -> "ConferenceBuilder":
@@ -61,7 +60,6 @@ class ConferenceBuilder:
             min_shifts_per_worker=1,
             max_shifts_per_worker=max_shifts_per_worker,
             max_preferences_per_worker=max_preferences_per_worker,
-            preference_distribution="uniform",
         )
         return self
 
@@ -81,8 +79,6 @@ class WorkerBuilder:
         """Initialize worker builder with defaults."""
         self.worker_id = TEST_WORKER_ID
         self.name = "Test Worker"
-        self.max_shifts = 3
-        self.max_preferences = 10
 
     def with_id(self, worker_id: str) -> "WorkerBuilder":
         """Set the worker ID."""
@@ -94,23 +90,11 @@ class WorkerBuilder:
         self.name = name
         return self
 
-    def with_max_shifts(self, max_shifts: int) -> "WorkerBuilder":
-        """Set the maximum shifts."""
-        self.max_shifts = max_shifts
-        return self
-
-    def with_max_preferences(self, max_preferences: int) -> "WorkerBuilder":
-        """Set the maximum preferences."""
-        self.max_preferences = max_preferences
-        return self
-
     def build(self) -> Worker:
         """Build the worker."""
         return Worker(
             id=self.worker_id,
             name=self.name,
-            max_shifts=self.max_shifts,
-            max_preferences=self.max_preferences,
         )
 
 
@@ -175,7 +159,7 @@ def create_simple_test_scenario() -> tuple[Conference, Worker, Shift]:
         .build()
     )
 
-    worker = WorkerBuilder().with_max_shifts(1).build()
+    worker = WorkerBuilder().build()
     shift = ShiftBuilder().with_max_workers(2).build()
 
     conference.add_worker(worker)
@@ -188,7 +172,7 @@ def create_overlapping_shifts_scenario() -> tuple[Conference, Worker, Shift, Shi
     """Create a scenario with overlapping shifts for time conflict testing."""
     conference = ConferenceBuilder().with_simple_config(max_shifts_per_worker=5).build()
 
-    worker = WorkerBuilder().with_max_shifts(5).build()
+    worker = WorkerBuilder().build()
 
     # First shift: 9 AM - 1 PM
     shift1 = ShiftBuilder().with_id("s1").with_duration_hours(9, 4).build()

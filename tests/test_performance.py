@@ -20,8 +20,9 @@ from .constants import (
     MIN_PREFERENCE_RATE,
     MIN_SHIFTS_STRESS,
     MIN_WORKERS_STRESS,
+    PERFORMANCE_TEST_SEED,
 )
-from .data_generator import ConferenceDataGenerator
+from .data_generator import ConferenceDataGenerator, DataGenerationConfig
 
 # Performance test constants
 SMALL_TIME_LIMIT = 1.0  # seconds
@@ -73,7 +74,7 @@ class PerformanceProfiler:
             for shift in conference.shifts:
                 shift.assigned_worker_ids.clear()
 
-            seed = hash((42, run)) % (2**32)
+            seed = hash((PERFORMANCE_TEST_SEED, run)) % (2**32)
             scheduler = ShiftScheduler(conference, rng=random.Random(seed))
 
             start_time = time.perf_counter()
@@ -103,7 +104,8 @@ class PerformanceProfiler:
             allocation_stats = AllocationStats(
                 total_workers=len(conference.workers),
                 workers_with_assignments=0,
-                total_worker_slots=sum(w.max_shifts for w in conference.workers),
+                total_worker_slots=len(conference.workers)
+                * conference.config.max_shifts_per_worker,
                 filled_worker_slots=0,
                 worker_utilization_rate=0.0,
                 total_shift_slots=sum(s.max_workers for s in conference.shifts),
@@ -123,7 +125,8 @@ class PerformanceProfiler:
             num_workers=len(conference.workers),
             num_shifts=len(conference.shifts),
             total_shift_slots=sum(s.max_workers for s in conference.shifts),
-            total_worker_capacity=sum(w.max_shifts for w in conference.workers),
+            total_worker_capacity=len(conference.workers)
+            * conference.config.max_shifts_per_worker,
             avg_execution_time=avg_time,
             min_execution_time=min_time,
             max_execution_time=max_time,
@@ -393,31 +396,22 @@ class TestDataGenerator:
 
     def test_preference_distributions(
         self,
-        data_generator: ConferenceDataGenerator,
+        data_generator: ConferenceDataGenerator,  # noqa: ARG002
         default_config: ConferenceConfig,
     ) -> None:
         """Test different preference distribution patterns."""
         distributions = ["uniform", "clustered", "realistic"]
 
         for dist in distributions:
-            # Create config with specific preference distribution
-            dist_config = ConferenceConfig(
-                start_time=default_config.start_time,
-                duration_days=default_config.duration_days,
-                shifts_per_day=default_config.shifts_per_day,
-                min_workers_per_shift=default_config.min_workers_per_shift,
-                max_workers_per_shift=default_config.max_workers_per_shift,
-                min_shifts_per_worker=default_config.min_shifts_per_worker,
-                max_shifts_per_worker=default_config.max_shifts_per_worker,
-                max_preferences_per_worker=default_config.max_preferences_per_worker,
-                preference_distribution=dist,
-            )
+            # Create data generator with specific preference distribution
+            data_config = DataGenerationConfig(preference_distribution=dist)
+            dist_generator = ConferenceDataGenerator(data_config=data_config)
 
-            conference = data_generator.generate_conference(
+            conference = dist_generator.generate_conference(
                 name=f"Distribution Test {dist}",
                 num_workers=50,
                 num_shifts=100,
-                config=dist_config,
+                config=default_config,
             )
 
             # All workers should have preferences

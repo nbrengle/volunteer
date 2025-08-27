@@ -10,8 +10,18 @@ from datetime import UTC, datetime, timedelta
 from scheduling.scheduling_domain import Conference, ConferenceConfig, Shift, Worker
 
 from .constants import (
+    HIGH_DEMAND_SHIFTS,
+    HIGH_DEMAND_WORKERS,
     HOURS_PER_DAY,
+    LARGE_CONFERENCE_SHIFTS,
+    LARGE_CONFERENCE_WORKERS,
+    MEDIUM_CONFERENCE_SHIFTS,
+    MEDIUM_CONFERENCE_WORKERS,
     PERFORMANCE_TEST_SEED,
+    SMALL_CONFERENCE_SHIFTS,
+    SMALL_CONFERENCE_WORKERS,
+    SMALL_SHIFTS_TOTAL,
+    SMALL_SHIFTS_WORKERS,
     STRESS_TEST_DURATION_DAYS,
     STRESS_TEST_MAX_PREFERENCES_PER_WORKER,
     STRESS_TEST_MAX_SHIFTS_PER_WORKER,
@@ -20,6 +30,22 @@ from .constants import (
     STRESS_TEST_SHIFTS_PER_DAY,
     STRESS_TEST_WORKERS,
 )
+
+
+@dataclass
+class DataGenerationConfig:
+    """Configuration for synthetic data generation."""
+
+    preference_distribution: str = "realistic"
+
+    def __post_init__(self) -> None:
+        """Validate data generation configuration."""
+        valid_distributions = {"uniform", "clustered", "realistic"}
+        if self.preference_distribution not in valid_distributions:
+            msg = (
+                "Preference distribution must be one of: uniform, clustered, realistic"
+            )
+            raise ValueError(msg)
 
 
 @dataclass
@@ -39,11 +65,16 @@ class FeasibilityResult:
 class ConferenceDataGenerator:
     """Generate synthetic conference data for testing and validation."""
 
-    def __init__(self, seed: int | None = None) -> None:
+    def __init__(
+        self,
+        seed: int | None = None,
+        data_config: DataGenerationConfig | None = None,
+    ) -> None:
         """Initialize generator with optional random seed for reproducible results."""
         # RNG for synthetic test data generation
         self.seed = seed
         self.rng = self._create_random_generator(seed)
+        self.data_config = data_config or DataGenerationConfig()
         self.locations = [
             "Main Auditorium",
             "Conference Room A",
@@ -115,7 +146,7 @@ class ConferenceDataGenerator:
     def generate_workers(
         self,
         num_workers: int,
-        config: ConferenceConfig,
+        config: ConferenceConfig,  # noqa: ARG002
     ) -> list[Worker]:
         """Generate workers with varying shift capacities using configuration."""
         workers = []
@@ -124,11 +155,6 @@ class ConferenceDataGenerator:
             worker = Worker(
                 id=f"worker_{i:04d}",
                 name=f"Worker {i + 1}",
-                max_shifts=self.rng.randint(
-                    config.min_shifts_per_worker,
-                    config.max_shifts_per_worker,
-                ),
-                max_preferences=config.max_preferences_per_worker,
             )
             workers.append(worker)
 
@@ -144,20 +170,23 @@ class ConferenceDataGenerator:
         shift_ids = [shift.id for shift in shifts]
 
         for worker in workers:
-            if config.preference_distribution == "uniform":
+            if self.data_config.preference_distribution == "uniform":
                 # Each worker has uniform random preferences
-                num_prefs = min(worker.max_preferences, len(shift_ids))
+                num_prefs = min(config.max_preferences_per_worker, len(shift_ids))
                 preferences = self.rng.sample(shift_ids, num_prefs)
 
-            elif config.preference_distribution == "clustered":
+            elif self.data_config.preference_distribution == "clustered":
                 # Workers tend to prefer shifts in certain locations/times
-                cluster_size = min(len(shift_ids) // 4, worker.max_preferences * 2)
+                cluster_size = min(
+                    len(shift_ids) // 4,
+                    config.max_preferences_per_worker * 2,
+                )
                 start_idx = self.rng.randint(0, max(0, len(shift_ids) - cluster_size))
                 cluster_shifts = shift_ids[start_idx : start_idx + cluster_size]
-                num_prefs = min(worker.max_preferences, len(cluster_shifts))
+                num_prefs = min(config.max_preferences_per_worker, len(cluster_shifts))
                 preferences = self.rng.sample(cluster_shifts, num_prefs)
 
-            elif config.preference_distribution == "realistic":
+            elif self.data_config.preference_distribution == "realistic":
                 # Mix of popular shifts and random preferences
                 popular_shifts = shift_ids[
                     : len(shift_ids) // 10
@@ -165,7 +194,7 @@ class ConferenceDataGenerator:
 
                 num_popular = min(self.rng.randint(1, 3), len(popular_shifts))
                 num_random = min(
-                    worker.max_preferences - num_popular,
+                    config.max_preferences_per_worker - num_popular,
                     len(shift_ids) - num_popular,
                 )
 
@@ -178,7 +207,8 @@ class ConferenceDataGenerator:
 
             else:
                 msg = (
-                    f"Unknown preference distribution: {config.preference_distribution}"
+                    f"Unknown preference distribution: "
+                    f"{self.data_config.preference_distribution}"
                 )
                 raise ValueError(msg)
 
@@ -203,7 +233,6 @@ class ConferenceDataGenerator:
                 min_shifts_per_worker=6,
                 max_shifts_per_worker=15,
                 max_preferences_per_worker=10,
-                preference_distribution="realistic",
             )
 
         # Generate shifts
@@ -235,7 +264,6 @@ class ConferenceDataGenerator:
             min_shifts_per_worker=STRESS_TEST_MIN_SHIFTS_PER_WORKER,
             max_shifts_per_worker=STRESS_TEST_MAX_SHIFTS_PER_WORKER,
             max_preferences_per_worker=STRESS_TEST_MAX_PREFERENCES_PER_WORKER,
-            preference_distribution="realistic",
         )
         conference = self.generate_conference(
             name="Stress Test Conference",
@@ -257,18 +285,18 @@ class ConferenceDataGenerator:
             shortage = feasibility.shortage
             workers = list(conference.workers)
 
-            # Sort workers by current capacity to distribute load fairly
-            workers.sort(key=lambda w: w.max_shifts)
+            # Sort workers by current assignment count to distribute load fairly
+            workers.sort(key=lambda w: len(w.assigned_shift_ids))
 
             # Add capacity to workers, starting with those who have the least
-            for _, worker in enumerate(workers):
+            for _, _worker in enumerate(workers):
                 if shortage <= 0:
                     break
 
-                # Add 1-2 shifts per worker to spread the load
-                additional_shifts = min(shortage, 2)
-                worker.max_shifts += additional_shifts
-                shortage -= additional_shifts
+                # This would require increasing the conference's
+                # max_shifts_per_worker limit. For now, skip this optimization -
+                # the conference config should be set appropriately
+                break  # Can't dynamically increase worker capacity in new architecture
 
     def validate_feasibility(
         self,
@@ -276,7 +304,9 @@ class ConferenceDataGenerator:
     ) -> FeasibilityResult:
         """Check if the generated conference data is feasible for full assignment."""
         total_shift_slots = sum(shift.max_workers for shift in conference.shifts)
-        total_worker_capacity = sum(worker.max_shifts for worker in conference.workers)
+        total_worker_capacity = (
+            len(conference.workers) * conference.config.max_shifts_per_worker
+        )
 
         return FeasibilityResult(
             num_workers=len(conference.workers),
@@ -300,8 +330,8 @@ def generate_test_scenarios() -> Generator[tuple[str, Conference], None, None]:
         "Small Conference",
         generator.generate_conference(
             name="Small Conference",
-            num_workers=20,
-            num_shifts=50,
+            num_workers=SMALL_CONFERENCE_WORKERS,
+            num_shifts=SMALL_CONFERENCE_SHIFTS,
         ),
     )
 
@@ -309,8 +339,8 @@ def generate_test_scenarios() -> Generator[tuple[str, Conference], None, None]:
         "Medium Conference",
         generator.generate_conference(
             name="Medium Conference",
-            num_workers=100,
-            num_shifts=500,
+            num_workers=MEDIUM_CONFERENCE_WORKERS,
+            num_shifts=MEDIUM_CONFERENCE_SHIFTS,
         ),
     )
 
@@ -318,8 +348,8 @@ def generate_test_scenarios() -> Generator[tuple[str, Conference], None, None]:
         "Large Conference",
         generator.generate_conference(
             name="Large Conference",
-            num_workers=300,
-            num_shifts=2000,
+            num_workers=LARGE_CONFERENCE_WORKERS,
+            num_shifts=LARGE_CONFERENCE_SHIFTS,
         ),
     )
 
@@ -338,14 +368,13 @@ def generate_test_scenarios() -> Generator[tuple[str, Conference], None, None]:
         min_shifts_per_worker=8,
         max_shifts_per_worker=15,
         max_preferences_per_worker=10,
-        preference_distribution="realistic",
     )
     yield (
         "High Worker Demand",
         generator.generate_conference(
             name="High Worker Demand",
-            num_workers=50,
-            num_shifts=1000,
+            num_workers=HIGH_DEMAND_WORKERS,
+            num_shifts=HIGH_DEMAND_SHIFTS,
             config=high_demand_config,
         ),
     )
@@ -360,14 +389,13 @@ def generate_test_scenarios() -> Generator[tuple[str, Conference], None, None]:
         min_shifts_per_worker=6,
         max_shifts_per_worker=15,
         max_preferences_per_worker=10,
-        preference_distribution="realistic",
     )
     yield (
         "Many Small Shifts",
         generator.generate_conference(
             name="Many Small Shifts",
-            num_workers=200,
-            num_shifts=5000,
+            num_workers=SMALL_SHIFTS_WORKERS,
+            num_shifts=SMALL_SHIFTS_TOTAL,
             config=small_shifts_config,
         ),
     )

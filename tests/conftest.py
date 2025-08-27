@@ -19,7 +19,6 @@ def default_config() -> ConferenceConfig:
         min_shifts_per_worker=6,
         max_shifts_per_worker=15,
         max_preferences_per_worker=10,
-        preference_distribution="realistic",
     )
 
 
@@ -35,7 +34,6 @@ def stress_test_config() -> ConferenceConfig:
         min_shifts_per_worker=30,
         max_shifts_per_worker=50,
         max_preferences_per_worker=20,
-        preference_distribution="realistic",
     )
 
 
@@ -51,7 +49,6 @@ def small_event_config() -> ConferenceConfig:
         min_shifts_per_worker=2,
         max_shifts_per_worker=4,
         max_preferences_per_worker=6,
-        preference_distribution="uniform",
     )
 
 
@@ -67,7 +64,6 @@ def large_conference_config() -> ConferenceConfig:
         min_shifts_per_worker=15,
         max_shifts_per_worker=25,
         max_preferences_per_worker=15,
-        preference_distribution="realistic",
     )
 
 
@@ -83,7 +79,6 @@ def high_competition_config() -> ConferenceConfig:
         min_shifts_per_worker=8,
         max_shifts_per_worker=12,
         max_preferences_per_worker=8,
-        preference_distribution="clustered",
     )
 
 
@@ -99,7 +94,6 @@ def feasible_config() -> ConferenceConfig:
         min_shifts_per_worker=8,
         max_shifts_per_worker=18,
         max_preferences_per_worker=10,
-        preference_distribution="realistic",
     )
 
 
@@ -115,5 +109,4 @@ def performance_config() -> ConferenceConfig:
         min_shifts_per_worker=12,
         max_shifts_per_worker=25,
         max_preferences_per_worker=10,
-        preference_distribution="realistic",
     )
