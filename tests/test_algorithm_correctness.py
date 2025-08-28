@@ -32,12 +32,12 @@ class TestDuplicateAssignmentPrevention:
         conference, worker, shift = create_simple_test_scenario()
 
         # First assignment should succeed
-        success1 = conference.assign_worker_to_shift(TEST_WORKER_ID, TEST_SHIFT_ID)
-        assert success1, "First assignment should succeed"
+        result1 = conference.assign_worker_to_shift(TEST_WORKER_ID, TEST_SHIFT_ID)
+        assert result1.success, "First assignment should succeed"
 
         # Second assignment of same worker to same shift should fail
-        success2 = conference.assign_worker_to_shift(TEST_WORKER_ID, TEST_SHIFT_ID)
-        assert not success2, (
+        result2 = conference.assign_worker_to_shift(TEST_WORKER_ID, TEST_SHIFT_ID)
+        assert not result2.success, (
             "Second assignment of same worker to same shift should fail"
         )
 
@@ -60,11 +60,11 @@ class TestDuplicateAssignmentPrevention:
 
         # Assign worker to shift
         result1 = conference.assign_worker_to_shift("w1", "s1")
-        assert result1, "Initial assignment should succeed"
+        assert result1.success, "Initial assignment should succeed"
 
         # Try to assign same worker to same shift again
         result2 = conference.assign_worker_to_shift("w1", "s1")
-        assert not result2, "Duplicate assignment should fail"
+        assert not result2.success, "Duplicate assignment should fail"
 
         # Verify state is consistent
         assert worker.is_assigned_to_shift("s1")
@@ -136,11 +136,11 @@ class TestTimeConflictDetection:
 
         # Assign worker to first shift
         result1 = conference.assign_worker_to_shift(TEST_WORKER_ID, "s1")
-        assert result1, "First assignment should succeed"
+        assert result1.success, "First assignment should succeed"
 
         # Attempt to assign worker to overlapping shift should fail
         result2 = conference.assign_worker_to_shift(TEST_WORKER_ID, "s2")
-        assert not result2, "Assignment to overlapping shift should fail"
+        assert not result2.success, "Assignment to overlapping shift should fail"
 
         # Verify worker is only assigned to the first shift
         assert len(worker.assigned_shift_ids) == 1
@@ -166,8 +166,8 @@ class TestTimeConflictDetection:
         conference.add_shift(base_shift)
 
         # Assign worker to base shift
-        success = conference.assign_worker_to_shift("w1", "base")
-        assert success, "Base assignment should succeed"
+        result = conference.assign_worker_to_shift("w1", "base")
+        assert result.success, "Base assignment should succeed"
 
         # Test various overlapping scenarios
         overlap_scenarios = [
@@ -228,11 +228,11 @@ class TestTimeConflictDetection:
             result = conference.assign_worker_to_shift("w1", scenario_name)
 
             if scenario_name in ["touching_end", "touching_start"]:
-                assert result, (
+                assert result.success, (
                     f"Non-overlapping shift '{scenario_name}' should be allowed"
                 )
             else:
-                assert not result, (
+                assert not result.success, (
                     f"Overlapping shift '{scenario_name}' should be prevented"
                 )
 

@@ -1,5 +1,6 @@
 """Performance tests for the conference scheduling system."""
 
+import hashlib
 import random
 import statistics
 import time
@@ -22,7 +23,7 @@ from .constants import (
     MIN_WORKERS_STRESS,
     PERFORMANCE_TEST_SEED,
 )
-from .data_generator import ConferenceDataGenerator, DataGenerationConfig
+from .data_generator import ConferenceDataGenerator, PreferenceDistribution
 
 # Performance test constants
 SMALL_TIME_LIMIT = 1.0  # seconds
@@ -74,7 +75,9 @@ class PerformanceProfiler:
             for shift in conference.shifts:
                 shift.assigned_worker_ids.clear()
 
-            seed = hash((PERFORMANCE_TEST_SEED, run)) % (2**32)
+            # Use deterministic hash for reproducible seeds across platforms
+            seed_input = f"{PERFORMANCE_TEST_SEED}_{run}".encode()
+            seed = int(hashlib.sha256(seed_input).hexdigest()[:8], 16)
             scheduler = ShiftScheduler(conference, rng=random.Random(seed))
 
             start_time = time.perf_counter()
@@ -235,7 +238,7 @@ class TestSchedulerPerformance:
         )
 
         # Validate feasibility first
-        feasibility = data_generator.validate_feasibility(conference)
+        feasibility = conference.validate_feasibility()
         assert feasibility.is_feasible, (
             f"Conference is not feasible - need {feasibility.shortage} more worker "
             f"slots. Total required: {feasibility.total_shift_slots}, "
@@ -253,7 +256,8 @@ class TestSchedulerPerformance:
         # Additional stress test assertions
         assert result.num_workers >= MIN_WORKERS_STRESS, "Not enough workers"
         assert result.num_shifts >= MIN_SHIFTS_STRESS, "Not enough shifts"
-        assert result.total_shift_slots >= MIN_SHIFTS_STRESS, "Not enough slots"
+        # Shift slots should be at least as many as shifts (min 1 worker per shift)
+        assert result.total_shift_slots >= result.num_shifts, "Not enough slots"
 
     def test_high_preference_satisfaction(
         self,
@@ -382,7 +386,7 @@ class TestDataGenerator:
                 num_workers=params["num_workers"],
                 num_shifts=params["num_shifts"],
             )
-            feasibility = data_generator.validate_feasibility(conference)
+            feasibility = conference.validate_feasibility()
 
             assert feasibility.is_feasible, (
                 f"Generated conference is not feasible - need "
@@ -396,7 +400,6 @@ class TestDataGenerator:
 
     def test_preference_distributions(
         self,
-        data_generator: ConferenceDataGenerator,  # noqa: ARG002
         default_config: ConferenceConfig,
     ) -> None:
         """Test different preference distribution patterns."""
@@ -404,8 +407,11 @@ class TestDataGenerator:
 
         for dist in distributions:
             # Create data generator with specific preference distribution
-            data_config = DataGenerationConfig(preference_distribution=dist)
-            dist_generator = ConferenceDataGenerator(data_config=data_config)
+            distribution_enum = PreferenceDistribution(dist)
+            dist_generator = ConferenceDataGenerator(
+                seed=DEFAULT_TEST_SEED,
+                preference_distribution=distribution_enum,
+            )
 
             conference = dist_generator.generate_conference(
                 name=f"Distribution Test {dist}",
@@ -432,7 +438,7 @@ class TestDataGenerator:
     ) -> None:
         """Test that stress test conference generation works."""
         stress_conf = data_generator.generate_stress_test_conference()
-        feasibility = data_generator.validate_feasibility(stress_conf)
+        feasibility = stress_conf.validate_feasibility()
 
         assert len(stress_conf.workers) >= MIN_WORKERS_STRESS, "Not enough workers"
         assert len(stress_conf.shifts) >= MIN_SHIFTS_STRESS, "Not enough shifts"

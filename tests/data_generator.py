@@ -1,13 +1,17 @@
 """Synthetic data generation for conference scheduling system."""
 
 import random
-import secrets
 import uuid
 from collections.abc import Generator
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import Enum
 
-from scheduling.scheduling_domain import Conference, ConferenceConfig, Shift, Worker
+from scheduling.scheduling_domain import (
+    Conference,
+    ConferenceConfig,
+    Shift,
+    Worker,
+)
 
 from .constants import (
     HIGH_DEMAND_SHIFTS,
@@ -32,34 +36,12 @@ from .constants import (
 )
 
 
-@dataclass
-class DataGenerationConfig:
-    """Configuration for synthetic data generation."""
+class PreferenceDistribution(Enum):
+    """Preference distribution patterns for synthetic data generation."""
 
-    preference_distribution: str = "realistic"
-
-    def __post_init__(self) -> None:
-        """Validate data generation configuration."""
-        valid_distributions = {"uniform", "clustered", "realistic"}
-        if self.preference_distribution not in valid_distributions:
-            msg = (
-                "Preference distribution must be one of: uniform, clustered, realistic"
-            )
-            raise ValueError(msg)
-
-
-@dataclass
-class FeasibilityResult:
-    """Results of checking if a conference is feasible for full allocation."""
-
-    num_workers: int
-    num_shifts: int
-    total_shift_slots: int
-    total_worker_capacity: int
-    is_feasible: bool
-    capacity_utilization: float
-    shortage: int
-    excess_capacity: int
+    UNIFORM = "uniform"
+    CLUSTERED = "clustered"
+    REALISTIC = "realistic"
 
 
 class ConferenceDataGenerator:
@@ -67,14 +49,16 @@ class ConferenceDataGenerator:
 
     def __init__(
         self,
-        seed: int | None = None,
-        data_config: DataGenerationConfig | None = None,
+        seed: int,
+        preference_distribution: PreferenceDistribution = (
+            PreferenceDistribution.REALISTIC
+        ),
     ) -> None:
-        """Initialize generator with optional random seed for reproducible results."""
+        """Initialize generator with seed for reproducible test results."""
         # RNG for synthetic test data generation
         self.seed = seed
-        self.rng = self._create_random_generator(seed)
-        self.data_config = data_config or DataGenerationConfig()
+        self.rng = random.Random(seed)
+        self.preference_distribution = preference_distribution
         self.locations = [
             "Main Auditorium",
             "Conference Room A",
@@ -87,24 +71,6 @@ class ConferenceDataGenerator:
             "Breakout Room 1",
             "Breakout Room 2",
         ]
-
-    def _create_random_generator(
-        self,
-        seed: int | None,
-    ) -> random.Random | secrets.SystemRandom:
-        """Create appropriate random generator based on seed presence.
-
-        For deterministic testing with seed, uses standard random.
-        For production without seed, uses cryptographically secure random.
-        """
-        if seed is not None:
-            # Create new Random instance with seed for testing reproducibility
-            # This is NOT for cryptographic purposes - only for deterministic test data
-            generator = random.Random()
-            generator.seed(seed)
-            return generator
-        # Use cryptographically secure random for production
-        return secrets.SystemRandom()
 
     def generate_shifts(
         self,
@@ -146,7 +112,6 @@ class ConferenceDataGenerator:
     def generate_workers(
         self,
         num_workers: int,
-        config: ConferenceConfig,  # noqa: ARG002
     ) -> list[Worker]:
         """Generate workers with varying shift capacities using configuration."""
         workers = []
@@ -170,12 +135,12 @@ class ConferenceDataGenerator:
         shift_ids = [shift.id for shift in shifts]
 
         for worker in workers:
-            if self.data_config.preference_distribution == "uniform":
+            if self.preference_distribution == PreferenceDistribution.UNIFORM:
                 # Each worker has uniform random preferences
                 num_prefs = min(config.max_preferences_per_worker, len(shift_ids))
                 preferences = self.rng.sample(shift_ids, num_prefs)
 
-            elif self.data_config.preference_distribution == "clustered":
+            elif self.preference_distribution == PreferenceDistribution.CLUSTERED:
                 # Workers tend to prefer shifts in certain locations/times
                 cluster_size = min(
                     len(shift_ids) // 4,
@@ -186,7 +151,7 @@ class ConferenceDataGenerator:
                 num_prefs = min(config.max_preferences_per_worker, len(cluster_shifts))
                 preferences = self.rng.sample(cluster_shifts, num_prefs)
 
-            elif self.data_config.preference_distribution == "realistic":
+            elif self.preference_distribution == PreferenceDistribution.REALISTIC:
                 # Mix of popular shifts and random preferences
                 popular_shifts = shift_ids[
                     : len(shift_ids) // 10
@@ -206,10 +171,7 @@ class ConferenceDataGenerator:
                 self.rng.shuffle(preferences)
 
             else:
-                msg = (
-                    f"Unknown preference distribution: "
-                    f"{self.data_config.preference_distribution}"
-                )
+                msg = f"Unknown preference distribution: {self.preference_distribution}"
                 raise ValueError(msg)
 
             worker.set_preferences(preferences)
@@ -239,7 +201,7 @@ class ConferenceDataGenerator:
         shifts = self.generate_shifts(num_shifts=num_shifts, config=config)
 
         # Generate workers
-        workers = self.generate_workers(num_workers=num_workers, config=config)
+        workers = self.generate_workers(num_workers=num_workers)
 
         # Assign preferences
         self.assign_preferences(workers, shifts, config)
@@ -278,7 +240,7 @@ class ConferenceDataGenerator:
 
     def _ensure_conference_feasibility(self, conference: Conference) -> None:
         """Adjust worker capacities to ensure conference is feasible."""
-        feasibility = self.validate_feasibility(conference)
+        feasibility = conference.validate_feasibility()
 
         if not feasibility.is_feasible:
             # We need more worker capacity - distribute additional shifts among workers
@@ -297,29 +259,6 @@ class ConferenceDataGenerator:
                 # max_shifts_per_worker limit. For now, skip this optimization -
                 # the conference config should be set appropriately
                 break  # Can't dynamically increase worker capacity in new architecture
-
-    def validate_feasibility(
-        self,
-        conference: Conference,
-    ) -> FeasibilityResult:
-        """Check if the generated conference data is feasible for full assignment."""
-        total_shift_slots = sum(shift.max_workers for shift in conference.shifts)
-        total_worker_capacity = (
-            len(conference.workers) * conference.config.max_shifts_per_worker
-        )
-
-        return FeasibilityResult(
-            num_workers=len(conference.workers),
-            num_shifts=len(conference.shifts),
-            total_shift_slots=total_shift_slots,
-            total_worker_capacity=total_worker_capacity,
-            is_feasible=total_worker_capacity >= total_shift_slots,
-            capacity_utilization=total_shift_slots / total_worker_capacity
-            if total_worker_capacity > 0
-            else 0,
-            shortage=max(0, total_shift_slots - total_worker_capacity),
-            excess_capacity=max(0, total_worker_capacity - total_shift_slots),
-        )
 
 
 def generate_test_scenarios() -> Generator[tuple[str, Conference], None, None]:
@@ -413,8 +352,8 @@ if __name__ == "__main__":
     )
 
     # Validate feasibility
-    feasibility = generator.validate_feasibility(test_conf)
+    feasibility = test_conf.validate_feasibility()
 
     # Generate stress test
     stress_conf = generator.generate_stress_test_conference()
-    stress_feasibility = generator.validate_feasibility(stress_conf)
+    stress_feasibility = stress_conf.validate_feasibility()

@@ -131,13 +131,6 @@ class Worker:
         except ValueError:
             return 0
 
-    def get_preference_rank(self, shift_id: str) -> int | None:
-        """Get the rank of a shift preference (1-based). None if not in preferences."""
-        try:
-            return self.shift_preferences.index(shift_id) + 1
-        except ValueError:
-            return None
-
     def add_shift_assignment(self, shift_id: str) -> None:
         """Add a shift assignment.
 
@@ -165,6 +158,20 @@ class Worker:
     def is_assigned_to_shift(self, shift_id: str) -> bool:
         """Check if worker is assigned to the specified shift."""
         return shift_id in self.assigned_shift_ids
+
+
+@dataclass
+class FeasibilityResult:
+    """Results of checking if a conference is feasible for full allocation."""
+
+    num_workers: int
+    num_shifts: int
+    total_shift_slots: int
+    total_worker_capacity: int
+    is_feasible: bool
+    capacity_utilization: float
+    shortage: int
+    excess_capacity: int
 
 
 @dataclass
@@ -239,17 +246,12 @@ class Conference:
         """Get shifts that still have open spots."""
         return [shift for shift in self.shifts if not shift.is_full]
 
-    def assign_worker_to_shift(self, worker_id: str, shift_id: str) -> bool:
-        """Assign a worker to a shift. Returns False if assignment fails."""
-        result = self.try_assign_worker_to_shift(worker_id, shift_id)
-        return result.success
-
-    def try_assign_worker_to_shift(
+    def assign_worker_to_shift(
         self,
         worker_id: str,
         shift_id: str,
     ) -> AssignmentResult:
-        """Attempt to assign a worker to a shift with detailed error information."""
+        """Assign a worker to a shift with detailed result information."""
         # Validate inputs exist
         validation_result = self._validate_assignment_inputs(worker_id, shift_id)
         if isinstance(validation_result, AssignmentResult):
@@ -355,12 +357,14 @@ class Conference:
                 ),
             )
 
-        if self._has_time_conflict(worker, shift):
-            conflicting_shifts = [
-                s.id
-                for s_id in worker.assigned_shift_ids
-                if (s := self.get_shift(s_id)) and self._shifts_overlap(s, shift)
-            ]
+        # Check for time conflicts with existing assignments
+        conflicting_shifts = [
+            s.id
+            for s_id in worker.assigned_shift_ids
+            if (s := self.get_shift(s_id)) and self._shifts_overlap(s, shift)
+        ]
+
+        if conflicting_shifts:
             return AssignmentResult(
                 success=False,
                 worker_id=worker_id,
@@ -374,33 +378,43 @@ class Conference:
         return None
 
     def unassign_worker_from_shift(self, worker_id: str, shift_id: str) -> bool:
-        """Remove a worker from a shift. Returns False if not assigned."""
+        """Remove a worker from a shift. Returns False if entities don't exist.
+
+        Raises ValueError if worker is not assigned to shift.
+        """
         worker = self.get_worker(worker_id)
         shift = self.get_shift(shift_id)
 
         if not worker or not shift:
             return False
 
-        try:
-            worker.remove_shift_assignment(shift_id)
-            shift.remove_worker(worker_id)
-        except ValueError:
-            return False
-        else:
-            return True
-
-    def _has_time_conflict(self, worker: Worker, new_shift: Shift) -> bool:
-        """Check if assigning worker to new_shift would create time conflicts."""
-        for assigned_shift_id in worker.assigned_shift_ids:
-            assigned_shift = self.get_shift(assigned_shift_id)
-            if assigned_shift and self._shifts_overlap(assigned_shift, new_shift):
-                return True
-        return False
+        # Let ValueError propagate - indicates invalid state
+        worker.remove_shift_assignment(shift_id)
+        shift.remove_worker(worker_id)
+        return True
 
     def _shifts_overlap(self, shift1: Shift, shift2: Shift) -> bool:
         """Check if two shifts have overlapping time periods."""
         return (
             shift1.start_time < shift2.end_time and shift2.start_time < shift1.end_time
+        )
+
+    def validate_feasibility(self) -> FeasibilityResult:
+        """Check if the conference is feasible for full assignment."""
+        total_shift_slots = sum(shift.max_workers for shift in self.shifts)
+        total_worker_capacity = len(self.workers) * self.config.max_shifts_per_worker
+
+        return FeasibilityResult(
+            num_workers=len(self.workers),
+            num_shifts=len(self.shifts),
+            total_shift_slots=total_shift_slots,
+            total_worker_capacity=total_worker_capacity,
+            is_feasible=total_worker_capacity >= total_shift_slots,
+            capacity_utilization=total_shift_slots / total_worker_capacity
+            if total_worker_capacity > 0
+            else 0,
+            shortage=max(0, total_shift_slots - total_worker_capacity),
+            excess_capacity=max(0, total_worker_capacity - total_shift_slots),
         )
 
 
@@ -489,30 +503,30 @@ class ShiftScheduler:
             worker.id: [] for worker in self.conference.workers
         }
 
-    def _update_worker_capacity(self, worker_id: str) -> None:
+    def _update_worker_capacity(self, worker: Worker) -> None:
         """Update worker capacity tracking after assignment."""
-        if worker_id in self._worker_capacity_remaining:
-            self._worker_capacity_remaining[worker_id] -= 1
-            if self._worker_capacity_remaining[worker_id] <= 0:
-                # Remove worker from available list
-                worker = self.conference.get_worker(worker_id)
-                if worker is not None and worker in self._available_workers:
-                    self._available_workers.remove(worker)
+        if worker.id in self._worker_capacity_remaining:
+            self._worker_capacity_remaining[worker.id] -= 1
+            if (
+                self._worker_capacity_remaining[worker.id] <= 0
+                and worker in self._available_workers
+            ):
+                self._available_workers.remove(worker)
 
-    def _add_shift_to_worker_cache(self, worker_id: str, shift: Shift) -> None:
+    def _add_shift_to_worker_cache(self, worker: Worker, shift: Shift) -> None:
         """Add a shift to worker's sorted shift cache for fast conflict detection."""
-        if worker_id in self._worker_sorted_shifts:
+        if worker.id in self._worker_sorted_shifts:
             shift_tuple = (shift.start_time, shift.end_time, shift.id)
-            shifts = self._worker_sorted_shifts[worker_id]
+            shifts = self._worker_sorted_shifts[worker.id]
             # Insert in sorted order by start time
             bisect.insort(shifts, shift_tuple)
 
-    def _has_time_conflict_optimized(self, worker_id: str, new_shift: Shift) -> bool:
-        """Optimized time conflict detection using sorted shift cache."""
-        if worker_id not in self._worker_sorted_shifts:
+    def _has_time_conflict(self, worker: Worker, new_shift: Shift) -> bool:
+        """Check if assigning worker to new_shift would create time conflicts."""
+        if worker.id not in self._worker_sorted_shifts:
             return False
 
-        shifts = self._worker_sorted_shifts[worker_id]
+        shifts = self._worker_sorted_shifts[worker.id]
         if not shifts:
             return False
 
@@ -539,8 +553,8 @@ class ShiftScheduler:
             # Already assigned to this shift check
             if worker.is_assigned_to_shift(shift.id):
                 continue
-            # Use optimized time conflict check
-            if self._has_time_conflict_optimized(worker.id, shift):
+            # Use time conflict check
+            if self._has_time_conflict(worker, shift):
                 continue
             available.append(worker)
         return available
@@ -645,7 +659,7 @@ class ShiftScheduler:
             shift.is_full
             or self._worker_capacity_remaining[worker.id] <= 0
             or worker.is_assigned_to_shift(shift.id)
-            or self._has_time_conflict_optimized(worker.id, shift)
+            or self._has_time_conflict(worker, shift)
         )
 
     def _process_preference_assignments(
@@ -658,12 +672,12 @@ class ShiftScheduler:
                 continue
 
             # Use the existing assign method which handles all validation
-            result = self.conference.try_assign_worker_to_shift(worker.id, shift.id)
+            result = self.conference.assign_worker_to_shift(worker.id, shift.id)
             if result.success:
                 # Update our tracking
-                self._update_worker_capacity(worker.id)
+                self._update_worker_capacity(worker)
                 # Add to sorted shift cache for faster future conflict detection
-                self._add_shift_to_worker_cache(worker.id, shift)
+                self._add_shift_to_worker_cache(worker, shift)
 
     def _assign_by_preferences(self) -> None:
         """Phase 1: Assign workers based on preferences with fair tie-breaking."""
@@ -688,11 +702,12 @@ class ShiftScheduler:
 
                 # Assign the first available worker
                 worker = available_workers[0]
-                if self.conference.assign_worker_to_shift(worker.id, shift.id):
+                result = self.conference.assign_worker_to_shift(worker.id, shift.id)
+                if result.success:
                     # Update our tracking
-                    self._update_worker_capacity(worker.id)
+                    self._update_worker_capacity(worker)
                     # Add to sorted shift cache
-                    self._add_shift_to_worker_cache(worker.id, shift)
+                    self._add_shift_to_worker_cache(worker, shift)
                 else:
                     # If assignment failed unexpectedly, break to avoid infinite loop
                     break
@@ -727,8 +742,10 @@ class ShiftScheduler:
         for worker in self.conference.workers:
             for shift_id in worker.assigned_shift_ids:
                 total_assignments += 1
-                rank = worker.get_preference_rank(shift_id)
-                if rank:
+                # Calculate rank from preference score (higher score = lower rank)
+                score = worker.get_preference_score(shift_id)
+                if score > 0:
+                    rank = len(worker.shift_preferences) - score + 1
                     preference_fulfillment[rank] = (
                         preference_fulfillment.get(rank, 0) + 1
                     )
