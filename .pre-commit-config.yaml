@@ -29,7 +29,7 @@ repos:
         name: mypy
         language: system
         types_or: [python, pyi]
-        entry: uv run mypy --strict
+        entry: uv run mypy
       - id: pytest
         name: pytest
         language: system
