@@ -25,6 +25,9 @@ project-excludes = [
     "**/*venv/**/*",
 ]
 
+[tool.ruff.lint]
+select = ["ALL"]
+
 [tool.ruff.lint.per-file-ignores]
 "test_*.py" = ["S101", "S311"]
 "tests/*.py" = ["S101", "S311"]
@@ -33,8 +36,11 @@ project-excludes = [
 convention = "google"
 
 [tool.pytest.ini_options]
-addopts = "-v -W error --cov=. --cov-fail-under=90"
+addopts = "-v -W error --cov=. --cov-fail-under=90 -m 'not performance'"
 testpaths = ["tests"]
+markers = [
+    "performance: marks tests as performance tests (deselect with '-m \"not performance\"')",
+]
 
 [tool.coverage.run]
 omit = [

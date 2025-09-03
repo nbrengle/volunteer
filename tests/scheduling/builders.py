@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from scheduling.scheduling_domain import Conference, ConferenceConfig, Shift, Worker
+from scheduling.domain import Conference, ConferenceConfig, Shift, Worker
 
 # Test identifiers
 TEST_WORKER_ID = "worker_001"
