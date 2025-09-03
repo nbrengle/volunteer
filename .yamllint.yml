@@ -1,0 +1,31 @@
+extends: default
+
+ignore: |
+  .venv/
+  **/.venv/
+
+rules:
+  # Line length to match our general project standards
+  line-length:
+    max: 88
+    level: warning
+
+  # Be flexible with indentation for different styles
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+
+  # Allow empty documents
+  document-start:
+    present: false
+
+  # More flexible with truthy values (on/off are common in CI)
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no', 'on', 'off']
+    check-keys: false
+
+  # Be more flexible with brackets for readability
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
