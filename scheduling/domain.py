@@ -42,6 +42,15 @@ class Worker:
 
 
 @dataclass(frozen=True)
+class WorkerPreference:
+    """Represents a worker's preference for a specific shift."""
+
+    worker: Worker
+    shift: Shift
+    preference_level: int  # Higher values indicate stronger preference
+
+
+@dataclass(frozen=True)
 class Assignment:
     """Represents an assignment of a worker to a shift."""
 
@@ -70,6 +79,7 @@ class Conference:
     workers: list[Worker] = field(default_factory=list)
     shifts: list[Shift] = field(default_factory=list)
     assignments: list[Assignment] = field(default_factory=list)
+    preferences: list[WorkerPreference] = field(default_factory=list)
 
     def add_worker(self, worker: Worker) -> None:
         """Add a worker to the conference."""
@@ -78,6 +88,10 @@ class Conference:
     def add_shift(self, shift: Shift) -> None:
         """Add a shift to the conference."""
         self.shifts.append(shift)
+
+    def add_preference(self, preference: WorkerPreference) -> None:
+        """Add a worker preference for a shift."""
+        self.preferences.append(preference)
 
     def get_worker(self, worker_id: str) -> Worker | None:
         """Get worker by ID."""
@@ -103,6 +117,37 @@ class Conference:
         """Get all assignments for a specific shift."""
         return [
             assignment for assignment in self.assignments if assignment.shift == shift
+        ]
+
+    def get_preferences_for_worker(self, worker: Worker) -> list[WorkerPreference]:
+        """Get all preferences for a specific worker."""
+        return [
+            preference for preference in self.preferences if preference.worker == worker
+        ]
+
+    def get_preferences_for_shift(self, shift: Shift) -> list[WorkerPreference]:
+        """Get all worker preferences for a specific shift."""
+        return [
+            preference for preference in self.preferences if preference.shift == shift
+        ]
+
+    def shifts_overlap(self, shift1: Shift, shift2: Shift) -> bool:
+        """Check if two shifts have overlapping time periods."""
+        return (
+            shift1.start_time < shift2.end_time and shift2.start_time < shift1.end_time
+        )
+
+    def get_overlapping_assignments(
+        self,
+        worker: Worker,
+        shift: Shift,
+    ) -> list[Assignment]:
+        """Get worker's assignments that overlap with the given shift."""
+        worker_assignments = self.get_assignments_for_worker(worker)
+        return [
+            assignment
+            for assignment in worker_assignments
+            if self.shifts_overlap(assignment.shift, shift)
         ]
 
     def is_worker_assigned_to_shift(self, worker: Worker, shift: Shift) -> bool:
@@ -156,6 +201,16 @@ class Conference:
 
         if self.is_worker_assigned_to_shift(worker, shift):
             msg = f"Worker '{worker.id}' is already assigned to shift '{shift.id}'"
+            raise ValueError(msg)
+
+        # Check for overlapping shifts
+        overlapping_assignments = self.get_overlapping_assignments(worker, shift)
+        if overlapping_assignments:
+            overlapping_shift = overlapping_assignments[0].shift
+            msg = (
+                f"Worker '{worker.id}' has overlapping shift '{overlapping_shift.id}' "
+                f"({overlapping_shift.start_time} - {overlapping_shift.end_time})"
+            )
             raise ValueError(msg)
 
         # Create and add the assignment
