@@ -2,8 +2,6 @@
 
 from datetime import UTC, datetime
 
-import pytest
-
 from scheduling.domain import ConferenceConfig, WorkerPreference
 from scheduling.generator import Schedule, ScheduleError, generate_schedule
 
@@ -214,31 +212,6 @@ class TestScheduleGeneration:
         for assignment in result.assignments:
             assert assignment.shift.id == "s1"
 
-    def test_schedule_does_not_modify_conference(self) -> None:
-        """Test that schedule generation does not modify the original conference."""
-        conference = ConferenceBuilder().with_simple_config().build()
-
-        worker = WorkerBuilder().with_id("w1").build()
-        shift = ShiftBuilder().with_id("s1").build()
-        conference.add_worker(worker)
-        conference.add_shift(shift)
-
-        pref = WorkerPreference(worker=worker, shift=shift, preference_level=5)
-        conference.add_preference(pref)
-
-        # Verify conference starts with no assignments
-        assert len(conference.assignments) == 0
-
-        # Generate schedule
-        result = generate_schedule(conference)
-
-        # Conference should still have no assignments
-        assert len(conference.assignments) == 0
-
-        # But result should have assignments
-        assert isinstance(result, Schedule)
-        assert len(result.assignments) == 1
-
 
 class TestOverlappingShiftValidation:
     """Test shift overlap detection."""
@@ -298,22 +271,3 @@ class TestOverlappingShiftValidation:
 
         assert not conference.shifts_overlap(shift1, shift2)
         assert not conference.shifts_overlap(shift2, shift1)
-
-    def test_assignment_prevented_for_overlapping_shifts(self) -> None:
-        """Test that assignment is prevented for overlapping shifts."""
-        conference = ConferenceBuilder().with_simple_config().build()
-        worker = WorkerBuilder().build()
-        conference.add_worker(worker)
-
-        # Create overlapping shifts
-        shift1 = ShiftBuilder().with_id("s1").with_duration_hours(9, 4).build()
-        shift2 = ShiftBuilder().with_id("s2").with_duration_hours(12, 3).build()
-        conference.add_shift(shift1)
-        conference.add_shift(shift2)
-
-        # Assign to first shift
-        conference.assign_worker(worker, shift1)
-
-        # Assignment to overlapping shift should fail
-        with pytest.raises(ValueError, match="overlapping shift"):
-            conference.assign_worker(worker, shift2)

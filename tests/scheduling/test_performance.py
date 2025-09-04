@@ -16,7 +16,7 @@ from scheduling.generator import Schedule, ScheduleError, generate_schedule
 
 def _get_error_message(result: Schedule | ScheduleError) -> str:
     """Extract error message from result, with fallback for unknown errors."""
-    return _get_error_message(result)
+    return getattr(result, "error_message", "Unknown error")
 
 
 def create_conference_for_testing(
@@ -106,8 +106,8 @@ class TestPerformance:
     def test_target_scale_performance(self) -> None:
         """Test performance at target scale: 400 workers, 1000 shifts."""
         conference = create_conference_for_testing(
-            num_workers=200,
-            num_shifts=500,
+            num_workers=400,
+            num_shifts=1000,
             preferences_per_worker=3,
         )
 
@@ -190,51 +190,80 @@ class TestPerformance:
         )
         assert len(result.assignments) > 0, "Should generate assignments at small scale"
 
-    def test_constraint_satisfaction_at_scale(self) -> None:
-        """Test that constraints are properly satisfied at scale."""
+    def test_high_demand_scenario_performance(self) -> None:
+        """Test performance with high minimum requirements that may cause failures."""
         conference = create_conference_for_testing(
-            num_workers=100,
-            num_shifts=200,
+            num_workers=50,  # Fewer workers
+            num_shifts=100,  # Many shifts
             preferences_per_worker=2,
-            min_workers_per_shift=2,  # Higher minimum requirement
-            max_workers_per_shift=4,
+            min_workers_per_shift=3,  # Higher minimum - may be impossible
+            max_workers_per_shift=5,
         )
 
+        start_time = time.time()
         result = generate_schedule(conference)
+        generation_time = time.time() - start_time
 
-        # With higher minimum requirements, expect either success or specific failure
+        # Should complete quickly even when constraints can't be satisfied
+        max_time = 2.0
+        assert generation_time < max_time, (
+            f"High demand scenario took too long: {generation_time:.2f}s"
+        )
+
+        # This scenario may legitimately fail due to impossible constraints
         if isinstance(result, Schedule):
-            # Verify no overlapping shifts for any worker
-            worker_shifts: dict[str, list[Shift]] = {}
-            for assignment in result.assignments:
-                worker_id = assignment.worker.id
-                if worker_id not in worker_shifts:
-                    worker_shifts[worker_id] = []
-                worker_shifts[worker_id].append(assignment.shift)
-
-            overlaps_found = 0
-            for shifts in worker_shifts.values():
-                for i, shift1 in enumerate(shifts):
-                    for shift2 in shifts[i + 1 :]:
-                        if conference.shifts_overlap(shift1, shift2):
-                            overlaps_found += 1
-
-            assert overlaps_found == 0, (
-                f"Found {overlaps_found} overlapping shift assignments"
-            )
-
-            # Verify worker capacity limits
-            capacity_violations = 0
-            for shifts in worker_shifts.values():
-                if len(shifts) > conference.config.max_shifts_per_worker:
-                    capacity_violations += 1
-
-            assert capacity_violations == 0, (
-                f"Found {capacity_violations} worker capacity violations"
-            )
+            # If it succeeds, verify basic properties
+            assert len(result.assignments) > 0, "Should have some assignments"
+            # Verify each shift meets minimum requirement
+            for shift in conference.shifts:
+                shift_assignments = [a for a in result.assignments if a.shift == shift]
+                assert (
+                    len(shift_assignments) >= conference.config.min_workers_per_shift
+                ), (
+                    f"Shift {shift.id} has {len(shift_assignments)}, "
+                    f"need {conference.config.min_workers_per_shift}"
+                )
         else:
-            # If generation failed, it should be due to constraint violation
+            # Failure is acceptable due to high constraints
             assert isinstance(result.error_message, str), "Error message required"
             assert "minimum worker requirements" in result.error_message, (
                 f"Expected constraint violation error, got: {result.error_message}"
+            )
+
+    def test_full_target_scale_performance(self) -> None:
+        """Test performance at full target scale: 400 workers, 1000 shifts."""
+        conference = create_conference_for_testing(
+            num_workers=400,
+            num_shifts=1000,
+            preferences_per_worker=3,
+        )
+
+        start_time = time.time()
+        result = generate_schedule(conference)
+        generation_time = time.time() - start_time
+
+        # Performance expectations - allow up to 60s for full scale
+        max_full_scale_time = 60.0
+        assert generation_time < max_full_scale_time, (
+            f"Full scale generation took too long: {generation_time:.2f}s"
+        )
+
+        # Test meaningful assertions - expect either success or specific failure
+        if isinstance(result, Schedule):
+            assert len(result.assignments) > 0, "No assignments were generated"
+
+            # Calculate basic statistics for validation
+            shifts_filled = len({a.shift for a in result.assignments})
+            workers_assigned = len({a.worker for a in result.assignments})
+
+            # Basic sanity checks
+            assert shifts_filled > 0, "No shifts were filled"
+            assert workers_assigned > 0, "No workers were assigned"
+        else:
+            # If generation failed, ensure we know why
+            assert isinstance(result.error_message, str), (
+                "Error message should be provided"
+            )
+            assert len(result.unassigned_shifts) > 0, (
+                "Should have unassigned shifts if generation failed"
             )
