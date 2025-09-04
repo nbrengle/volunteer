@@ -74,7 +74,9 @@ def generate_schedule(
         assigned_count = len(shift_assignments[shift])
 
         # Check if shift already meets minimum requirement
-        if assigned_count >= constraints.min_workers_per_shift:
+        # (use higher of global or shift-specific)
+        min_required = max(constraints.min_workers_per_shift, shift.min_workers)
+        if assigned_count >= min_required:
             continue
 
         # Get workers who prefer this shift, sorted by preference level
@@ -107,12 +109,12 @@ def generate_schedule(
                 assigned_count += 1
 
                 # Stop if we've met the minimum requirement
-                if assigned_count >= constraints.min_workers_per_shift:
+                if assigned_count >= min_required:
                     break
 
         # Check if shift minimum requirement is met
         final_assigned_count = len(shift_assignments[shift])
-        if final_assigned_count < constraints.min_workers_per_shift:
+        if final_assigned_count < min_required:
             unassigned_shifts.append(shift)
 
     # Second phase: Try to assign any available workers to unassigned shifts
@@ -136,22 +138,6 @@ def generate_schedule(
         )
 
     return Schedule(assignments=assignments)
-
-
-def _get_assignments_for_shift(
-    assignments: list[Assignment],
-    shift: Shift,
-) -> list[Assignment]:
-    """Get assignments for a specific shift."""
-    return [assignment for assignment in assignments if assignment.shift == shift]
-
-
-def _get_assignments_for_worker(
-    assignments: list[Assignment],
-    worker: Worker,
-) -> list[Assignment]:
-    """Get assignments for a specific worker."""
-    return [assignment for assignment in assignments if assignment.worker == worker]
 
 
 def _can_assign_worker(
@@ -250,7 +236,8 @@ def _fallback_assignment(
 
     for shift in unassigned_shifts:
         current_count = len(shift_assignments[shift])
-        workers_needed = constraints.min_workers_per_shift - current_count
+        min_required = max(constraints.min_workers_per_shift, shift.min_workers)
+        workers_needed = min_required - current_count
 
         if workers_needed <= 0:
             continue
@@ -267,8 +254,9 @@ def _fallback_assignment(
         # Sort by current assignment count (least loaded first)
         available_workers.sort(key=lambda x: x[0])
 
-        # Assign workers until minimum requirement is met
-        for _, worker in available_workers[:workers_needed]:  # Only take what we need
+        # Assign workers until minimum requirement is met (limited by available workers)
+        workers_to_assign = min(workers_needed, len(available_workers))
+        for _, worker in available_workers[:workers_to_assign]:
             assignment = Assignment(worker=worker, shift=shift)
             assignments.append(assignment)
             shift_assignments[shift].append(assignment)
@@ -277,7 +265,7 @@ def _fallback_assignment(
             current_count += 1
 
         # Check if we met the minimum requirement
-        if current_count < constraints.min_workers_per_shift:
+        if current_count < min_required:
             remaining_unassigned.append(shift)
 
     return remaining_unassigned

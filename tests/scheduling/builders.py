@@ -35,6 +35,7 @@ class WorkerBuilder:
         return Worker(
             id=self.worker_id,
             name=self.name,
+            skills=set(),
         )
 
 
@@ -87,5 +88,8 @@ class ShiftBuilder:
             start_time=self.start_time,
             end_time=self.end_time,
             location=self.location,
+            required_skills=set(),
+            min_workers=1,
             max_workers=self.max_workers,
+            role_description="",
         )

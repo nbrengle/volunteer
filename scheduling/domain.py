@@ -18,11 +18,10 @@ class SchedulingConstraints:
     max_workers_per_shift: int
     min_shifts_per_worker: int
     max_shifts_per_worker: int
-    min_transition_time: timedelta = field(
-        default_factory=lambda: timedelta(minutes=30),
-    )
-    fairness_enabled: bool = True
-    prefer_consecutive_shifts: bool = False
+    # Minimum time between shifts for the same worker to allow for travel/transition
+    min_transition_time: timedelta
+    fairness_enabled: bool
+    prefer_consecutive_shifts: bool
 
 
 @dataclass(frozen=True)
@@ -37,10 +36,10 @@ class Shift:
     start_time: datetime
     end_time: datetime
     location: str
-    required_skills: set[str] = field(default_factory=set, hash=False)
-    min_workers: int = 1
-    max_workers: int = 1
-    role_description: str = ""
+    required_skills: set[str] = field(hash=False)
+    min_workers: int
+    max_workers: int
+    role_description: str
 
 
 @dataclass(frozen=True)
@@ -49,7 +48,7 @@ class Worker:
 
     id: str
     name: str
-    skills: set[str] = field(default_factory=set, hash=False)
+    skills: set[str] = field(hash=False)
 
 
 @dataclass(frozen=True)
@@ -77,4 +76,4 @@ class AssignmentResult:
     success: bool
     worker_id: str
     shift_id: str
-    error_reason: str | None = None
+    error_reason: str | None

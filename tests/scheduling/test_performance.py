@@ -35,12 +35,15 @@ def create_test_data(
         max_workers_per_shift=max_workers_per_shift,
         min_shifts_per_worker=18,
         max_shifts_per_worker=22,  # Allow workers to work many shifts
+        min_transition_time=timedelta(minutes=30),
+        fairness_enabled=True,
+        prefer_consecutive_shifts=False,
     )
 
     # Create workers
     workers = []
     for i in range(num_workers):
-        worker = Worker(id=f"worker_{i:04d}", name=f"Worker {i}")
+        worker = Worker(id=f"worker_{i:04d}", name=f"Worker {i}", skills=set())
         workers.append(worker)
 
     # Create shifts with varying times and capacities
@@ -65,7 +68,10 @@ def create_test_data(
             start_time=shift_start,
             end_time=shift_end,
             location=f"Room {i % 50}",  # 50 different rooms
+            required_skills=set(),
+            min_workers=1,
             max_workers=capacity,
+            role_description="",
         )
         shifts.append(shift)
 
@@ -92,43 +98,6 @@ def create_test_data(
 
 class TestPerformance:
     """Performance tests for schedule generation."""
-
-    def test_target_scale_performance(self) -> None:
-        """Test performance at target scale: 400 workers, 1000 shifts."""
-        workers, shifts, preferences, constraints = create_test_data(
-            num_workers=400,
-            num_shifts=1000,
-            preferences_per_worker=3,
-        )
-
-        start_time = time.time()
-
-        result = generate_schedule(shifts, workers, preferences, constraints)
-
-        generation_time = time.time() - start_time
-
-        # Test meaningful assertions - performance thresholds
-        max_generation_time = 30.0
-        assert generation_time < max_generation_time, (
-            f"Schedule generation took too long: {generation_time:.2f}s"
-        )
-
-        # Target scale should succeed with reduced constraints
-        assert isinstance(result, Schedule), (
-            f"Target scale generation failed: {_get_error_message(result)}"
-        )
-        assert len(result.assignments) > 0, "No assignments were generated"
-
-        # Verify all shifts meet minimum requirements
-        understaffed_shifts = 0
-        for shift in shifts:
-            assignments_for_shift = [a for a in result.assignments if a.shift == shift]
-            if len(assignments_for_shift) < constraints.min_workers_per_shift:
-                understaffed_shifts += 1
-
-        assert understaffed_shifts == 0, (
-            f"{understaffed_shifts} shifts are understaffed"
-        )
 
     def test_medium_scale_performance(self) -> None:
         """Test performance at medium scale: 100 workers, 200 shifts."""
@@ -214,8 +183,8 @@ class TestPerformance:
                 f"need {constraints.min_workers_per_shift}"
             )
 
-    def test_full_target_scale_performance(self) -> None:
-        """Test performance at full target scale: 400 workers, 1000 shifts."""
+    def test_target_scale_performance(self) -> None:
+        """Test performance at target scale: 400 workers, 1000 shifts."""
         workers, shifts, preferences, constraints = create_test_data(
             num_workers=400,
             num_shifts=1000,
