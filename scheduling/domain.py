@@ -78,7 +78,6 @@ class Conference:
     config: ConferenceConfig
     workers: list[Worker] = field(default_factory=list)
     shifts: list[Shift] = field(default_factory=list)
-    assignments: list[Assignment] = field(default_factory=list)
     preferences: list[WorkerPreference] = field(default_factory=list)
 
     def add_worker(self, worker: Worker) -> None:
@@ -107,18 +106,6 @@ class Conference:
                 return shift
         return None
 
-    def get_assignments_for_worker(self, worker: Worker) -> list[Assignment]:
-        """Get all assignments for a specific worker."""
-        return [
-            assignment for assignment in self.assignments if assignment.worker == worker
-        ]
-
-    def get_assignments_for_shift(self, shift: Shift) -> list[Assignment]:
-        """Get all assignments for a specific shift."""
-        return [
-            assignment for assignment in self.assignments if assignment.shift == shift
-        ]
-
     def get_preferences_for_worker(self, worker: Worker) -> list[WorkerPreference]:
         """Get all preferences for a specific worker."""
         return [
@@ -136,102 +123,3 @@ class Conference:
         return (
             shift1.start_time < shift2.end_time and shift2.start_time < shift1.end_time
         )
-
-    def get_overlapping_assignments(
-        self,
-        worker: Worker,
-        shift: Shift,
-    ) -> list[Assignment]:
-        """Get worker's assignments that overlap with the given shift."""
-        worker_assignments = self.get_assignments_for_worker(worker)
-        return [
-            assignment
-            for assignment in worker_assignments
-            if self.shifts_overlap(assignment.shift, shift)
-        ]
-
-    def is_worker_assigned_to_shift(self, worker: Worker, shift: Shift) -> bool:
-        """Check if worker is assigned to the specified shift."""
-        return any(
-            assignment.worker == worker and assignment.shift == shift
-            for assignment in self.assignments
-        )
-
-    def is_worker_at_shift_capacity(self, worker: Worker) -> bool:
-        """Check if worker is at maximum shift capacity."""
-        worker_assignments = self.get_assignments_for_worker(worker)
-        return len(worker_assignments) >= self.config.max_shifts_per_worker
-
-    def is_shift_at_capacity(self, shift: Shift) -> bool:
-        """Check if shift is at maximum worker capacity."""
-        shift_assignments = self.get_assignments_for_shift(shift)
-        return len(shift_assignments) >= shift.max_workers
-
-    def assign_worker(self, worker: Worker, shift: Shift) -> Assignment:
-        """Assign a worker to a shift.
-
-        Args:
-            worker: Worker to assign
-            shift: Shift to assign worker to
-
-        Returns:
-            Assignment object representing the assignment
-
-        Raises:
-            ValueError: If assignment constraints are violated
-        """
-        # Check constraints
-        if self.is_worker_at_shift_capacity(worker):
-            worker_assignments = self.get_assignments_for_worker(worker)
-            max_shifts = self.config.max_shifts_per_worker
-            current_shifts = len(worker_assignments)
-            msg = (
-                f"Worker '{worker.id}' is at capacity "
-                f"({current_shifts}/{max_shifts} shifts)"
-            )
-            raise ValueError(msg)
-
-        if self.is_shift_at_capacity(shift):
-            shift_assignments = self.get_assignments_for_shift(shift)
-            msg = (
-                f"Shift '{shift.id}' is full "
-                f"({len(shift_assignments)}/{shift.max_workers} workers)"
-            )
-            raise ValueError(msg)
-
-        if self.is_worker_assigned_to_shift(worker, shift):
-            msg = f"Worker '{worker.id}' is already assigned to shift '{shift.id}'"
-            raise ValueError(msg)
-
-        # Check for overlapping shifts
-        overlapping_assignments = self.get_overlapping_assignments(worker, shift)
-        if overlapping_assignments:
-            overlapping_shift = overlapping_assignments[0].shift
-            msg = (
-                f"Worker '{worker.id}' has overlapping shift '{overlapping_shift.id}' "
-                f"({overlapping_shift.start_time} - {overlapping_shift.end_time})"
-            )
-            raise ValueError(msg)
-
-        # Create and add the assignment
-        assignment = Assignment(worker=worker, shift=shift)
-        self.assignments.append(assignment)
-        return assignment
-
-    def unassign_worker_from_shift(self, worker: Worker, shift: Shift) -> None:
-        """Remove a worker from a shift.
-
-        Args:
-            worker: Worker to unassign
-            shift: Shift to unassign worker from
-
-        Raises:
-            ValueError: If worker is not assigned to shift
-        """
-        for assignment in self.assignments:
-            if assignment.worker == worker and assignment.shift == shift:
-                self.assignments.remove(assignment)
-                return
-
-        msg = f"Worker '{worker.id}' is not assigned to shift '{shift.id}'"
-        raise ValueError(msg)
