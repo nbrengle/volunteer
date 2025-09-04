@@ -111,7 +111,6 @@ class TestPerformance:
             preferences_per_worker=3,
         )
 
-        time.time() - start_time  # Setup time (unused)
         start_time = time.time()
 
         result = generate_schedule(conference)
@@ -198,18 +197,8 @@ class TestPerformance:
         )
 
         # Small scale should always succeed
-        assert isinstance(
-            result,
-            Schedule,
-        ), (
-            f"Small scale failed: "
-            f"{
-                (
-                    result.error_message
-                    if hasattr(result, 'error_message')
-                    else 'Unknown error'
-                )
-            }"
+        assert isinstance(result, Schedule), (
+            f"Small scale failed: {getattr(result, 'error_message', 'Unknown error')}"
         )
         assert len(result.assignments) > 0, "Should generate assignments at small scale"
 

@@ -24,7 +24,6 @@ def test_full_target_scale_performance() -> tuple[bool, float]:
         preferences_per_worker=3,
     )
 
-    time.time() - start_time  # Setup time (unused)
     start_time = time.time()
 
     result = generate_schedule(conference)
