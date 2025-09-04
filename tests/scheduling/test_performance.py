@@ -7,7 +7,9 @@ from random import Random
 from scheduling.domain import (
     Conference,
     ConferenceConfig,
+    SchedulingConstraints,
     Shift,
+    ShiftRequirement,
     Worker,
     WorkerPreference,
 )
@@ -17,6 +19,16 @@ from scheduling.generator import Schedule, ScheduleError, generate_schedule
 def _get_error_message(result: Schedule | ScheduleError) -> str:
     """Extract error message from result, with fallback for unknown errors."""
     return getattr(result, "error_message", "Unknown error")
+
+
+def _config_to_constraints(config: ConferenceConfig) -> SchedulingConstraints:
+    """Convert ConferenceConfig to SchedulingConstraints for the new pure function."""
+    return SchedulingConstraints(
+        min_workers_per_shift=config.min_workers_per_shift,
+        max_workers_per_shift=config.max_workers_per_shift,
+        min_shifts_per_worker=config.min_shifts_per_worker,
+        max_shifts_per_worker=config.max_shifts_per_worker,
+    )
 
 
 def create_conference_for_testing(
@@ -70,12 +82,19 @@ def create_conference_for_testing(
         # Random capacity between 1 and max_workers_per_shift
         capacity = rng.randint(1, max_workers_per_shift)
 
+        # Create a default requirement that mimics the old max_workers behavior
+        requirement = ShiftRequirement(
+            required_skills=set(),
+            min_workers=1,
+            max_workers=capacity,
+            description="Performance test requirement",
+        )
         shift = Shift(
             id=f"shift_{i:04d}",
             start_time=shift_start,
             end_time=shift_end,
             location=f"Room {i % 50}",  # 50 different rooms
-            max_workers=capacity,
+            requirements=[requirement],
         )
         shifts.append(shift)
         conference.add_shift(shift)
@@ -113,7 +132,13 @@ class TestPerformance:
 
         start_time = time.time()
 
-        result = generate_schedule(conference)
+        constraints = _config_to_constraints(conference.config)
+        result = generate_schedule(
+            conference.shifts,
+            conference.workers,
+            conference.preferences,
+            constraints,
+        )
 
         generation_time = time.time() - start_time
 
@@ -149,7 +174,13 @@ class TestPerformance:
         )
 
         start_time = time.time()
-        result = generate_schedule(conference)
+        constraints = _config_to_constraints(conference.config)
+        result = generate_schedule(
+            conference.shifts,
+            conference.workers,
+            conference.preferences,
+            constraints,
+        )
         generation_time = time.time() - start_time
 
         # Should complete quickly at medium scale
@@ -175,7 +206,13 @@ class TestPerformance:
         )
 
         start_time = time.time()
-        result = generate_schedule(conference)
+        constraints = _config_to_constraints(conference.config)
+        result = generate_schedule(
+            conference.shifts,
+            conference.workers,
+            conference.preferences,
+            constraints,
+        )
         generation_time = time.time() - start_time
 
         # Should complete very quickly at small scale
@@ -201,7 +238,13 @@ class TestPerformance:
         )
 
         start_time = time.time()
-        result = generate_schedule(conference)
+        constraints = _config_to_constraints(conference.config)
+        result = generate_schedule(
+            conference.shifts,
+            conference.workers,
+            conference.preferences,
+            constraints,
+        )
         generation_time = time.time() - start_time
 
         # Should complete within reasonable time for high-demand scenario
@@ -233,7 +276,13 @@ class TestPerformance:
         )
 
         start_time = time.time()
-        result = generate_schedule(conference)
+        constraints = _config_to_constraints(conference.config)
+        result = generate_schedule(
+            conference.shifts,
+            conference.workers,
+            conference.preferences,
+            constraints,
+        )
         generation_time = time.time() - start_time
 
         # Performance expectations - allow up to 60s for full scale

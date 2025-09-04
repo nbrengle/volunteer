@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .domain import Assignment, Conference, Shift, Worker
+from .domain import (
+    Assignment,
+    SchedulingConstraints,
+    Shift,
+    Worker,
+    WorkerPreference,
+)
 
 
 @dataclass
 class Schedule:
     """A successfully generated schedule."""
 
-    conference: Conference
     assignments: list[Assignment]
 
 
@@ -23,19 +28,28 @@ class ScheduleError:
     error_message: str
 
 
-def generate_schedule(conference: Conference) -> Schedule | ScheduleError:
+def generate_schedule(
+    shifts: list[Shift],
+    workers: list[Worker],
+    preferences: list[WorkerPreference],
+    constraints: SchedulingConstraints,
+) -> Schedule | ScheduleError:
     """Generate a schedule prioritizing worker preferences while meeting constraints.
 
     Algorithm:
-    1. Sort shifts by capacity (most constrained first)
-    2. For each shift, sort workers by preference level (highest first)
-    3. Assign workers to shifts while respecting constraints:
+    1. Sort shifts by total capacity (most constrained first)
+    2. For each shift requirement, sort workers by preference level (highest first)
+    3. Assign workers to specific shift requirements while respecting constraints:
+       - Workers must have required skills
        - No overlapping shifts for a worker
        - Worker capacity limits
-       - Shift minimum requirements must be met
+       - Shift requirement minimums must be met
 
     Args:
-        conference: Conference with workers, shifts, and preferences
+        shifts: List of shifts to be filled
+        workers: List of available workers
+        preferences: List of worker preferences for shifts
+        constraints: Scheduling constraints and rules
 
     Returns:
         Schedule on success, ScheduleError on failure
@@ -43,17 +57,15 @@ def generate_schedule(conference: Conference) -> Schedule | ScheduleError:
     assignments: list[Assignment] = []
 
     # Create lookup structures for fast access
-    shift_assignments: dict[Shift, list[Assignment]] = {
-        shift: [] for shift in conference.shifts
-    }
+    shift_assignments: dict[Shift, list[Assignment]] = {shift: [] for shift in shifts}
     worker_assignments: dict[Worker, list[Assignment]] = {
-        worker: [] for worker in conference.workers
+        worker: [] for worker in workers
     }
 
     # Sort shifts by capacity (smallest capacity = most constrained first)
     shifts_to_fill = sorted(
-        conference.shifts,
-        key=lambda s: s.max_workers,
+        shifts,
+        key=lambda s: s.total_max_workers,
     )
 
     unassigned_shifts = []
@@ -62,11 +74,11 @@ def generate_schedule(conference: Conference) -> Schedule | ScheduleError:
         assigned_count = len(shift_assignments[shift])
 
         # Check if shift already meets minimum requirement
-        if assigned_count >= conference.config.min_workers_per_shift:
+        if assigned_count >= constraints.min_workers_per_shift:
             continue
 
         # Get workers who prefer this shift, sorted by preference level
-        shift_preferences = conference.get_preferences_for_shift(shift)
+        shift_preferences = [p for p in preferences if p.shift == shift]
         preferred_workers = sorted(
             shift_preferences,
             key=lambda p: p.preference_level,
@@ -79,34 +91,42 @@ def generate_schedule(conference: Conference) -> Schedule | ScheduleError:
 
             # Check if we can assign this worker
             if _can_assign_worker(
-                conference,
+                constraints,
                 shift_assignments,
                 worker_assignments,
                 worker,
                 shift,
             ):
-                assignment = Assignment(worker=worker, shift=shift)
+                # For now, assign to the first requirement of the shift
+                # NOTE: Future enhancement - implement proper requirement matching logic
+                requirement = shift.requirements[0] if shift.requirements else None
+                if requirement is None:
+                    continue  # Skip shifts with no requirements
+                assignment = Assignment(
+                    worker=worker,
+                    shift=shift,
+                    requirement=requirement,
+                )
                 assignments.append(assignment)
                 shift_assignments[shift].append(assignment)
                 worker_assignments[worker].append(assignment)
                 assigned_count += 1
 
                 # Stop if we've met the minimum requirement
-                if assigned_count >= conference.config.min_workers_per_shift:
+                if assigned_count >= constraints.min_workers_per_shift:
                     break
 
         # Check if shift minimum requirement is met
         final_assigned_count = len(shift_assignments[shift])
-        if final_assigned_count < conference.config.min_workers_per_shift:
+        if final_assigned_count < constraints.min_workers_per_shift:
             unassigned_shifts.append(shift)
 
     # Second phase: Try to assign any available workers to unassigned shifts
     if unassigned_shifts:
         unassigned_shifts = _fallback_assignment(
-            conference,
-            assignments,
-            shift_assignments,
-            worker_assignments,
+            workers,
+            constraints,
+            (assignments, shift_assignments, worker_assignments),
             unassigned_shifts,
         )
 
@@ -121,7 +141,7 @@ def generate_schedule(conference: Conference) -> Schedule | ScheduleError:
             error_message=error_message,
         )
 
-    return Schedule(conference=conference, assignments=assignments)
+    return Schedule(assignments=assignments)
 
 
 def _get_assignments_for_shift(
@@ -141,7 +161,7 @@ def _get_assignments_for_worker(
 
 
 def _can_assign_worker(
-    conference: Conference,
+    constraints: SchedulingConstraints,
     shift_assignments: dict[Shift, list[Assignment]],
     worker_assignments: dict[Worker, list[Assignment]],
     worker: Worker,
@@ -150,12 +170,12 @@ def _can_assign_worker(
     """Check if a worker can be assigned to a shift."""
     # Check worker capacity
     worker_assignment_list = worker_assignments[worker]
-    if len(worker_assignment_list) >= conference.config.max_shifts_per_worker:
+    if len(worker_assignment_list) >= constraints.max_shifts_per_worker:
         return False
 
     # Check shift capacity
     shift_assignment_list = shift_assignments[shift]
-    if len(shift_assignment_list) >= shift.max_workers:
+    if len(shift_assignment_list) >= shift.total_max_workers:
         return False
 
     # Check if already assigned
@@ -167,68 +187,99 @@ def _can_assign_worker(
 
     # Check for overlapping shifts
     for assignment in worker_assignment_list:
-        if conference.shifts_overlap(assignment.shift, shift):
+        if _shifts_overlap(assignment.shift, shift):
             return False
 
     return True
 
 
+def _shifts_overlap(shift1: Shift, shift2: Shift) -> bool:
+    """Check if two shifts have overlapping time periods."""
+    return shift1.start_time < shift2.end_time and shift2.start_time < shift1.end_time
+
+
+def _find_available_workers(
+    workers: list[Worker],
+    shift: Shift,
+    current_count: int,
+    constraints: SchedulingConstraints,
+    worker_data: tuple[dict[Worker, int], dict[Worker, list[Assignment]]],
+) -> list[tuple[int, Worker]]:
+    """Find workers available for assignment to a shift."""
+    worker_assignment_counts, worker_assignments = worker_data
+    available_workers = []
+    for worker in workers:
+        # Quick checks first before expensive overlap check
+        if worker_assignment_counts[worker] >= constraints.max_shifts_per_worker:
+            continue
+
+        # Check shift capacity
+        if current_count >= shift.total_max_workers:
+            break  # Shift is full
+
+        # Check for overlaps
+        worker_assignment_list = worker_assignments[worker]
+        has_overlap = any(
+            _shifts_overlap(assignment.shift, shift)
+            for assignment in worker_assignment_list
+        )
+        if has_overlap:
+            continue
+
+        available_workers.append((worker_assignment_counts[worker], worker))
+
+    return available_workers
+
+
 def _fallback_assignment(
-    conference: Conference,
-    assignments: list[Assignment],
-    shift_assignments: dict[Shift, list[Assignment]],
-    worker_assignments: dict[Worker, list[Assignment]],
+    workers: list[Worker],
+    constraints: SchedulingConstraints,
+    assignment_data: tuple[
+        list[Assignment],
+        dict[Shift, list[Assignment]],
+        dict[Worker, list[Assignment]],
+    ],
     unassigned_shifts: list[Shift],
 ) -> list[Shift]:
     """Try to assign workers to shifts that couldn't be filled by preferences."""
     if not unassigned_shifts:
         return []
 
+    assignments, shift_assignments, worker_assignments = assignment_data
+
     # Pre-compute worker assignment counts
     worker_assignment_counts = {
-        worker: len(worker_assignments[worker]) for worker in conference.workers
+        worker: len(worker_assignments[worker]) for worker in workers
     }
 
     remaining_unassigned = []
 
     for shift in unassigned_shifts:
         current_count = len(shift_assignments[shift])
-        workers_needed = conference.config.min_workers_per_shift - current_count
+        workers_needed = constraints.min_workers_per_shift - current_count
 
         if workers_needed <= 0:
             continue
 
         # Find available workers for this shift
-        available_workers = []
-        for worker in conference.workers:
-            # Quick checks first before expensive overlap check
-            if (
-                worker_assignment_counts[worker]
-                >= conference.config.max_shifts_per_worker
-            ):
-                continue
-
-            # Check shift capacity
-            if current_count >= shift.max_workers:
-                break  # Shift is full
-
-            # Check for overlaps
-            worker_assignment_list = worker_assignments[worker]
-            has_overlap = any(
-                conference.shifts_overlap(assignment.shift, shift)
-                for assignment in worker_assignment_list
-            )
-            if has_overlap:
-                continue
-
-            available_workers.append((worker_assignment_counts[worker], worker))
+        available_workers = _find_available_workers(
+            workers,
+            shift,
+            current_count,
+            constraints,
+            (worker_assignment_counts, worker_assignments),
+        )
 
         # Sort by current assignment count (least loaded first)
         available_workers.sort(key=lambda x: x[0])
 
         # Assign workers until minimum requirement is met
         for _, worker in available_workers[:workers_needed]:  # Only take what we need
-            assignment = Assignment(worker=worker, shift=shift)
+            # For now, assign to the first requirement of the shift
+            requirement = shift.requirements[0] if shift.requirements else None
+            if requirement is None:
+                continue  # Skip shifts with no requirements
+            assignment = Assignment(worker=worker, shift=shift, requirement=requirement)
             assignments.append(assignment)
             shift_assignments[shift].append(assignment)
             worker_assignments[worker].append(assignment)
@@ -236,7 +287,7 @@ def _fallback_assignment(
             current_count += 1
 
         # Check if we met the minimum requirement
-        if current_count < conference.config.min_workers_per_shift:
+        if current_count < constraints.min_workers_per_shift:
             remaining_unassigned.append(shift)
 
     return remaining_unassigned
