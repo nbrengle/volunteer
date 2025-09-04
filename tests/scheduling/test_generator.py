@@ -1,6 +1,6 @@
 """Tests for schedule generation functionality."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from scheduling.domain import SchedulingConstraints, WorkerPreference
 from scheduling.generator import (
@@ -25,6 +25,9 @@ def _create_default_constraints(
         max_workers_per_shift=max_workers_per_shift,
         min_shifts_per_worker=min_shifts_per_worker,
         max_shifts_per_worker=max_shifts_per_worker,
+        min_transition_time=timedelta(minutes=30),
+        fairness_enabled=True,
+        prefer_consecutive_shifts=False,
     )
 
 
