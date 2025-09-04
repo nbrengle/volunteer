@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 
 from scheduling.domain import (
     Shift,
-    ShiftRequirement,
     Worker,
 )
 
@@ -83,17 +82,10 @@ class ShiftBuilder:
 
     def build(self) -> Shift:
         """Build the shift."""
-        # Create a default requirement that mimics the old max_workers behavior
-        default_requirement = ShiftRequirement(
-            required_skills=set(),
-            min_workers=1,
-            max_workers=self.max_workers,
-            description="Default requirement",
-        )
         return Shift(
             id=self.shift_id,
             start_time=self.start_time,
             end_time=self.end_time,
             location=self.location,
-            requirements=[default_requirement],
+            max_workers=self.max_workers,
         )
