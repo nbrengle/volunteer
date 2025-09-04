@@ -4,8 +4,6 @@ import time
 from datetime import UTC, datetime, timedelta
 from random import Random
 
-import pytest
-
 from scheduling.domain import (
     Conference,
     ConferenceConfig,
@@ -13,10 +11,15 @@ from scheduling.domain import (
     Worker,
     WorkerPreference,
 )
-from scheduling.generator import Schedule, generate_schedule
+from scheduling.generator import Schedule, ScheduleError, generate_schedule
 
 
-def create_large_scale_conference(
+def _get_error_message(result: Schedule | ScheduleError) -> str:
+    """Extract error message from result, with fallback for unknown errors."""
+    return _get_error_message(result)
+
+
+def create_conference_for_testing(
     num_workers: int = 400,
     num_shifts: int = 1000,
     preferences_per_worker: int = 3,
@@ -33,8 +36,8 @@ def create_large_scale_conference(
         duration_days=7,  # Week-long conference
         min_workers_per_shift=min_workers_per_shift,
         max_workers_per_shift=max_workers_per_shift,
-        min_shifts_per_worker=1,
-        max_shifts_per_worker=20,  # Allow workers to work many shifts
+        min_shifts_per_worker=18,
+        max_shifts_per_worker=22,  # Allow workers to work many shifts
     )
 
     conference = Conference(
@@ -97,15 +100,12 @@ def create_large_scale_conference(
     return conference
 
 
-@pytest.mark.performance
 class TestPerformance:
     """Performance tests for schedule generation."""
 
     def test_target_scale_performance(self) -> None:
         """Test performance at target scale: 400 workers, 1000 shifts."""
-        start_time = time.time()
-
-        conference = create_large_scale_conference(
+        conference = create_conference_for_testing(
             num_workers=200,
             num_shifts=500,
             preferences_per_worker=3,
@@ -123,36 +123,26 @@ class TestPerformance:
             f"Schedule generation took too long: {generation_time:.2f}s"
         )
 
-        if isinstance(result, Schedule):
-            # Verify schedule was generated successfully
-            assert len(result.assignments) > 0, "No assignments were generated"
+        # Target scale should succeed with reduced constraints
+        assert isinstance(result, Schedule), (
+            f"Target scale generation failed: {_get_error_message(result)}"
+        )
+        assert len(result.assignments) > 0, "No assignments were generated"
 
-            # Check minimum requirements are met
-            understaffed_shifts = 0
-            for shift in conference.shifts:
-                assignments_for_shift = [
-                    a for a in result.assignments if a.shift == shift
-                ]
-                if len(assignments_for_shift) < conference.config.min_workers_per_shift:
-                    understaffed_shifts += 1
+        # Verify all shifts meet minimum requirements
+        understaffed_shifts = 0
+        for shift in conference.shifts:
+            assignments_for_shift = [a for a in result.assignments if a.shift == shift]
+            if len(assignments_for_shift) < conference.config.min_workers_per_shift:
+                understaffed_shifts += 1
 
-            # Assert no shifts are understaffed
-            assert understaffed_shifts == 0, (
-                f"{understaffed_shifts} shifts are understaffed"
-            )
-        else:
-            # If generation failed, ensure we know why
-            assert isinstance(
-                result.error_message,
-                str,
-            ), "Error message should be provided"
-            assert len(result.unassigned_shifts) > 0, (
-                "Should have unassigned shifts if generation failed"
-            )
+        assert understaffed_shifts == 0, (
+            f"{understaffed_shifts} shifts are understaffed"
+        )
 
     def test_medium_scale_performance(self) -> None:
         """Test performance at medium scale: 100 workers, 200 shifts."""
-        conference = create_large_scale_conference(
+        conference = create_conference_for_testing(
             num_workers=100,
             num_shifts=200,
             preferences_per_worker=3,
@@ -168,19 +158,17 @@ class TestPerformance:
             f"Medium scale took too long: {generation_time:.2f}s"
         )
 
-        if isinstance(result, Schedule):
-            assert len(result.assignments) > 0, (
-                "Should generate assignments at medium scale"
-            )
-        else:
-            # Medium scale should generally succeed
-            pytest.fail(
-                f"Medium scale failed unexpectedly: {result.error_message}",
-            )
+        # Medium scale should always succeed
+        assert isinstance(result, Schedule), (
+            f"Medium scale failed unexpectedly: {_get_error_message(result)}"
+        )
+        assert len(result.assignments) > 0, (
+            "Should generate assignments at medium scale"
+        )
 
     def test_small_scale_performance(self) -> None:
         """Test performance at small scale: 20 workers, 50 shifts."""
-        conference = create_large_scale_conference(
+        conference = create_conference_for_testing(
             num_workers=20,
             num_shifts=50,
             preferences_per_worker=3,
@@ -198,13 +186,13 @@ class TestPerformance:
 
         # Small scale should always succeed
         assert isinstance(result, Schedule), (
-            f"Small scale failed: {getattr(result, 'error_message', 'Unknown error')}"
+            f"Small scale failed: {_get_error_message(result)}"
         )
         assert len(result.assignments) > 0, "Should generate assignments at small scale"
 
     def test_constraint_satisfaction_at_scale(self) -> None:
         """Test that constraints are properly satisfied at scale."""
-        conference = create_large_scale_conference(
+        conference = create_conference_for_testing(
             num_workers=100,
             num_shifts=200,
             preferences_per_worker=2,
@@ -214,6 +202,7 @@ class TestPerformance:
 
         result = generate_schedule(conference)
 
+        # With higher minimum requirements, expect either success or specific failure
         if isinstance(result, Schedule):
             # Verify no overlapping shifts for any worker
             worker_shifts: dict[str, list[Shift]] = {}
@@ -244,8 +233,8 @@ class TestPerformance:
                 f"Found {capacity_violations} worker capacity violations"
             )
         else:
-            # Higher minimum requirements may cause failure - this is acceptable
-            assert isinstance(
-                result.error_message,
-                str,
-            ), "Should provide error message on failure"
+            # If generation failed, it should be due to constraint violation
+            assert isinstance(result.error_message, str), "Error message required"
+            assert "minimum worker requirements" in result.error_message, (
+                f"Expected constraint violation error, got: {result.error_message}"
+            )
