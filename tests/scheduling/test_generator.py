@@ -271,3 +271,62 @@ class TestOverlappingShiftValidation:
 
         assert not conference.shifts_overlap(shift1, shift2)
         assert not conference.shifts_overlap(shift2, shift1)
+
+
+class TestConferenceLookupMethods:
+    """Test Conference entity lookup methods."""
+
+    def test_get_worker_found(self) -> None:
+        """Test getting worker by ID when worker exists."""
+        conference = ConferenceBuilder().with_simple_config().build()
+        worker = WorkerBuilder().with_id("test_worker").build()
+        conference.add_worker(worker)
+
+        found_worker = conference.get_worker("test_worker")
+        assert found_worker is worker
+
+    def test_get_worker_not_found(self) -> None:
+        """Test getting worker by ID when worker doesn't exist."""
+        conference = ConferenceBuilder().with_simple_config().build()
+
+        found_worker = conference.get_worker("nonexistent")
+        assert found_worker is None
+
+    def test_get_shift_found(self) -> None:
+        """Test getting shift by ID when shift exists."""
+        conference = ConferenceBuilder().with_simple_config().build()
+        shift = ShiftBuilder().with_id("test_shift").build()
+        conference.add_shift(shift)
+
+        found_shift = conference.get_shift("test_shift")
+        assert found_shift is shift
+
+    def test_get_shift_not_found(self) -> None:
+        """Test getting shift by ID when shift doesn't exist."""
+        conference = ConferenceBuilder().with_simple_config().build()
+
+        found_shift = conference.get_shift("nonexistent")
+        assert found_shift is None
+
+    def test_get_preferences_for_worker(self) -> None:
+        """Test getting preferences for a worker."""
+        conference = ConferenceBuilder().with_simple_config().build()
+        worker = WorkerBuilder().with_id("w1").build()
+        shift1 = ShiftBuilder().with_id("s1").build()
+        shift2 = ShiftBuilder().with_id("s2").build()
+
+        conference.add_worker(worker)
+        conference.add_shift(shift1)
+        conference.add_shift(shift2)
+
+        # Add preferences
+        pref1 = WorkerPreference(worker=worker, shift=shift1, preference_level=5)
+        pref2 = WorkerPreference(worker=worker, shift=shift2, preference_level=3)
+        conference.add_preference(pref1)
+        conference.add_preference(pref2)
+
+        preferences = conference.get_preferences_for_worker(worker)
+        expected_preference_count = 2
+        assert len(preferences) == expected_preference_count
+        assert pref1 in preferences
+        assert pref2 in preferences
