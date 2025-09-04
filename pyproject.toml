@@ -37,11 +37,8 @@ ignore = ["COM812"]  # Conflicts with formatter
 convention = "google"
 
 [tool.pytest.ini_options]
-addopts = "-v -W error --cov=. --cov-fail-under=90 -m 'not performance'"
+addopts = "-v -W error --cov=. --cov-fail-under=90"
 testpaths = ["tests"]
-markers = [
-    "performance: marks tests as performance tests (deselect with '-m \"not performance\"')",
-]
 
 [tool.coverage.run]
 omit = [
