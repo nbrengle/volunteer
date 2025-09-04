@@ -2,7 +2,13 @@
 
 from datetime import UTC, datetime, timedelta
 
-from scheduling.domain import Conference, ConferenceConfig, Shift, Worker
+from scheduling.domain import (
+    Conference,
+    ConferenceConfig,
+    Shift,
+    ShiftRequirement,
+    Worker,
+)
 
 # Test identifiers
 TEST_WORKER_ID = "worker_001"
@@ -136,10 +142,17 @@ class ShiftBuilder:
 
     def build(self) -> Shift:
         """Build the shift."""
+        # Create a default requirement that mimics the old max_workers behavior
+        default_requirement = ShiftRequirement(
+            required_skills=set(),
+            min_workers=1,
+            max_workers=self.max_workers,
+            description="Default requirement",
+        )
         return Shift(
             id=self.shift_id,
             start_time=self.start_time,
             end_time=self.end_time,
             location=self.location,
-            max_workers=self.max_workers,
+            requirements=[default_requirement],
         )

@@ -2,10 +2,25 @@
 
 from datetime import UTC, datetime
 
-from scheduling.domain import ConferenceConfig, WorkerPreference
-from scheduling.generator import Schedule, ScheduleError, generate_schedule
+from scheduling.domain import ConferenceConfig, SchedulingConstraints, WorkerPreference
+from scheduling.generator import (
+    Schedule,
+    ScheduleError,
+    _shifts_overlap,
+    generate_schedule,
+)
 
 from .builders import ConferenceBuilder, ShiftBuilder, WorkerBuilder
+
+
+def _config_to_constraints(config: ConferenceConfig) -> SchedulingConstraints:
+    """Convert ConferenceConfig to SchedulingConstraints for the new pure function."""
+    return SchedulingConstraints(
+        min_workers_per_shift=config.min_workers_per_shift,
+        max_workers_per_shift=config.max_workers_per_shift,
+        min_shifts_per_worker=config.min_shifts_per_worker,
+        max_shifts_per_worker=config.max_shifts_per_worker,
+    )
 
 
 class TestScheduleGeneration:
@@ -33,14 +48,19 @@ class TestScheduleGeneration:
         conference.add_preference(pref1)
         conference.add_preference(pref2)
 
-        # Generate schedule
-        result = generate_schedule(conference)
+        # Generate schedule with new signature
+        constraints = _config_to_constraints(conference.config)
+        result = generate_schedule(
+            conference.shifts,
+            conference.workers,
+            conference.preferences,
+            constraints,
+        )
 
         # Should succeed
         assert isinstance(result, Schedule)
         expected_assignments = 2
         assert len(result.assignments) == expected_assignments
-        assert result.conference is conference
 
         # Verify assignments match preferences
         assignment_pairs = [(a.worker.id, a.shift.id) for a in result.assignments]
@@ -69,7 +89,13 @@ class TestScheduleGeneration:
         conference.add_preference(pref2)
 
         # Generate schedule
-        result = generate_schedule(conference)
+        constraints = _config_to_constraints(conference.config)
+        result = generate_schedule(
+            conference.shifts,
+            conference.workers,
+            conference.preferences,
+            constraints,
+        )
 
         # Should fail because we can't meet minimum requirements for both shifts
         assert isinstance(result, ScheduleError)
@@ -97,7 +123,13 @@ class TestScheduleGeneration:
         conference.add_preference(pref2)
 
         # Generate schedule
-        result = generate_schedule(conference)
+        constraints = _config_to_constraints(conference.config)
+        result = generate_schedule(
+            conference.shifts,
+            conference.workers,
+            conference.preferences,
+            constraints,
+        )
 
         # Should succeed with worker1 assigned (higher preference)
         assert isinstance(result, Schedule)
@@ -129,7 +161,13 @@ class TestScheduleGeneration:
         conference.add_preference(pref)
 
         # Generate schedule
-        result = generate_schedule(conference)
+        constraints = _config_to_constraints(conference.config)
+        result = generate_schedule(
+            conference.shifts,
+            conference.workers,
+            conference.preferences,
+            constraints,
+        )
 
         # Should fail - can't assign worker to both shifts
         assert isinstance(result, ScheduleError)
@@ -162,7 +200,13 @@ class TestScheduleGeneration:
         conference.add_preference(pref2)
 
         # Generate schedule
-        result = generate_schedule(conference)
+        constraints = _config_to_constraints(conference.config)
+        result = generate_schedule(
+            conference.shifts,
+            conference.workers,
+            conference.preferences,
+            constraints,
+        )
 
         # Should fail because worker can only work one shift
         assert isinstance(result, ScheduleError)
@@ -201,7 +245,13 @@ class TestScheduleGeneration:
         conference.add_preference(pref3)
 
         # Generate schedule
-        result = generate_schedule(conference)
+        constraints = _config_to_constraints(conference.config)
+        result = generate_schedule(
+            conference.shifts,
+            conference.workers,
+            conference.preferences,
+            constraints,
+        )
 
         # Should succeed with at least 2 workers assigned
         assert isinstance(result, Schedule)
@@ -218,8 +268,6 @@ class TestOverlappingShiftValidation:
 
     def test_shifts_overlap_detection(self) -> None:
         """Test detection of overlapping shifts."""
-        conference = ConferenceBuilder().with_simple_config().build()
-
         # Create overlapping shifts
         shift1 = (
             ShiftBuilder()
@@ -241,13 +289,11 @@ class TestOverlappingShiftValidation:
             .build()
         )
 
-        assert conference.shifts_overlap(shift1, shift2)
-        assert conference.shifts_overlap(shift2, shift1)
+        assert _shifts_overlap(shift1, shift2)
+        assert _shifts_overlap(shift2, shift1)
 
     def test_shifts_no_overlap_detection(self) -> None:
         """Test detection of non-overlapping shifts."""
-        conference = ConferenceBuilder().with_simple_config().build()
-
         # Create non-overlapping shifts
         shift1 = (
             ShiftBuilder()
@@ -269,8 +315,8 @@ class TestOverlappingShiftValidation:
             .build()
         )
 
-        assert not conference.shifts_overlap(shift1, shift2)
-        assert not conference.shifts_overlap(shift2, shift1)
+        assert not _shifts_overlap(shift1, shift2)
+        assert not _shifts_overlap(shift2, shift1)
 
 
 class TestConferenceLookupMethods:
