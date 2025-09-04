@@ -5,8 +5,6 @@ from datetime import UTC, datetime, timedelta
 from random import Random
 
 from scheduling.domain import (
-    Conference,
-    ConferenceConfig,
     SchedulingConstraints,
     Shift,
     ShiftRequirement,
@@ -21,41 +19,23 @@ def _get_error_message(result: Schedule | ScheduleError) -> str:
     return getattr(result, "error_message", "Unknown error")
 
 
-def _config_to_constraints(config: ConferenceConfig) -> SchedulingConstraints:
-    """Convert ConferenceConfig to SchedulingConstraints for the new pure function."""
-    return SchedulingConstraints(
-        min_workers_per_shift=config.min_workers_per_shift,
-        max_workers_per_shift=config.max_workers_per_shift,
-        min_shifts_per_worker=config.min_shifts_per_worker,
-        max_shifts_per_worker=config.max_shifts_per_worker,
-    )
-
-
-def create_conference_for_testing(
+def create_test_data(
     num_workers: int = 400,
     num_shifts: int = 1000,
     preferences_per_worker: int = 3,
     min_workers_per_shift: int = 1,
     max_workers_per_shift: int = 6,
-) -> Conference:
-    """Create a large-scale conference for performance testing."""
+) -> tuple[list[Worker], list[Shift], list[WorkerPreference], SchedulingConstraints]:
+    """Create test data for performance testing."""
     seed = 42
     rng = Random(seed)
 
-    # Create conference
-    config = ConferenceConfig(
-        start_time=datetime(2024, 6, 1, 8, 0, tzinfo=UTC),
-        duration_days=7,  # Week-long conference
+    # Create constraints
+    constraints = SchedulingConstraints(
         min_workers_per_shift=min_workers_per_shift,
         max_workers_per_shift=max_workers_per_shift,
         min_shifts_per_worker=18,
         max_shifts_per_worker=22,  # Allow workers to work many shifts
-    )
-
-    conference = Conference(
-        id="large_conf",
-        name="Large Scale Conference",
-        config=config,
     )
 
     # Create workers
@@ -63,11 +43,10 @@ def create_conference_for_testing(
     for i in range(num_workers):
         worker = Worker(id=f"worker_{i:04d}", name=f"Worker {i}")
         workers.append(worker)
-        conference.add_worker(worker)
 
     # Create shifts with varying times and capacities
     shifts = []
-    start_time = config.start_time
+    start_time = datetime(2024, 6, 1, 8, 0, tzinfo=UTC)
 
     for i in range(num_shifts):
         # Distribute shifts across the week
@@ -97,9 +76,9 @@ def create_conference_for_testing(
             requirements=[requirement],
         )
         shifts.append(shift)
-        conference.add_shift(shift)
 
     # Create preferences - each worker has preferences_per_worker random preferences
+    preferences = []
     for worker in workers:
         # Select random shifts for this worker to prefer
         preferred_shifts = rng.sample(
@@ -114,9 +93,9 @@ def create_conference_for_testing(
                 shift=shift,
                 preference_level=preference_level,
             )
-            conference.add_preference(preference)
+            preferences.append(preference)
 
-    return conference
+    return workers, shifts, preferences, constraints
 
 
 class TestPerformance:
@@ -124,7 +103,7 @@ class TestPerformance:
 
     def test_target_scale_performance(self) -> None:
         """Test performance at target scale: 400 workers, 1000 shifts."""
-        conference = create_conference_for_testing(
+        workers, shifts, preferences, constraints = create_test_data(
             num_workers=400,
             num_shifts=1000,
             preferences_per_worker=3,
@@ -132,13 +111,7 @@ class TestPerformance:
 
         start_time = time.time()
 
-        constraints = _config_to_constraints(conference.config)
-        result = generate_schedule(
-            conference.shifts,
-            conference.workers,
-            conference.preferences,
-            constraints,
-        )
+        result = generate_schedule(shifts, workers, preferences, constraints)
 
         generation_time = time.time() - start_time
 
@@ -156,9 +129,9 @@ class TestPerformance:
 
         # Verify all shifts meet minimum requirements
         understaffed_shifts = 0
-        for shift in conference.shifts:
+        for shift in shifts:
             assignments_for_shift = [a for a in result.assignments if a.shift == shift]
-            if len(assignments_for_shift) < conference.config.min_workers_per_shift:
+            if len(assignments_for_shift) < constraints.min_workers_per_shift:
                 understaffed_shifts += 1
 
         assert understaffed_shifts == 0, (
@@ -167,20 +140,14 @@ class TestPerformance:
 
     def test_medium_scale_performance(self) -> None:
         """Test performance at medium scale: 100 workers, 200 shifts."""
-        conference = create_conference_for_testing(
+        workers, shifts, preferences, constraints = create_test_data(
             num_workers=100,
             num_shifts=200,
             preferences_per_worker=3,
         )
 
         start_time = time.time()
-        constraints = _config_to_constraints(conference.config)
-        result = generate_schedule(
-            conference.shifts,
-            conference.workers,
-            conference.preferences,
-            constraints,
-        )
+        result = generate_schedule(shifts, workers, preferences, constraints)
         generation_time = time.time() - start_time
 
         # Should complete quickly at medium scale
@@ -199,20 +166,14 @@ class TestPerformance:
 
     def test_small_scale_performance(self) -> None:
         """Test performance at small scale: 20 workers, 50 shifts."""
-        conference = create_conference_for_testing(
+        workers, shifts, preferences, constraints = create_test_data(
             num_workers=20,
             num_shifts=50,
             preferences_per_worker=3,
         )
 
         start_time = time.time()
-        constraints = _config_to_constraints(conference.config)
-        result = generate_schedule(
-            conference.shifts,
-            conference.workers,
-            conference.preferences,
-            constraints,
-        )
+        result = generate_schedule(shifts, workers, preferences, constraints)
         generation_time = time.time() - start_time
 
         # Should complete very quickly at small scale
@@ -229,7 +190,7 @@ class TestPerformance:
 
     def test_high_demand_scenario_performance(self) -> None:
         """Test performance with high shift-to-worker ratio scenario."""
-        conference = create_conference_for_testing(
+        workers, shifts, preferences, constraints = create_test_data(
             num_workers=80,  # Sufficient workers to meet demands
             num_shifts=120,  # Many shifts to test scalability
             preferences_per_worker=4,
@@ -238,13 +199,7 @@ class TestPerformance:
         )
 
         start_time = time.time()
-        constraints = _config_to_constraints(conference.config)
-        result = generate_schedule(
-            conference.shifts,
-            conference.workers,
-            conference.preferences,
-            constraints,
-        )
+        result = generate_schedule(shifts, workers, preferences, constraints)
         generation_time = time.time() - start_time
 
         # Should complete within reasonable time for high-demand scenario
@@ -260,29 +215,23 @@ class TestPerformance:
         assert len(result.assignments) > 0, "Should have assignments"
 
         # Verify each shift meets minimum requirement
-        for shift in conference.shifts:
+        for shift in shifts:
             shift_assignments = [a for a in result.assignments if a.shift == shift]
-            assert len(shift_assignments) >= conference.config.min_workers_per_shift, (
+            assert len(shift_assignments) >= constraints.min_workers_per_shift, (
                 f"Shift {shift.id} has {len(shift_assignments)}, "
-                f"need {conference.config.min_workers_per_shift}"
+                f"need {constraints.min_workers_per_shift}"
             )
 
     def test_full_target_scale_performance(self) -> None:
         """Test performance at full target scale: 400 workers, 1000 shifts."""
-        conference = create_conference_for_testing(
+        workers, shifts, preferences, constraints = create_test_data(
             num_workers=400,
             num_shifts=1000,
             preferences_per_worker=3,
         )
 
         start_time = time.time()
-        constraints = _config_to_constraints(conference.config)
-        result = generate_schedule(
-            conference.shifts,
-            conference.workers,
-            conference.preferences,
-            constraints,
-        )
+        result = generate_schedule(shifts, workers, preferences, constraints)
         generation_time = time.time() - start_time
 
         # Performance expectations - allow up to 60s for full scale
