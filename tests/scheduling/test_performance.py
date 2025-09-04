@@ -10,12 +10,7 @@ from scheduling.domain import (
     Worker,
     WorkerPreference,
 )
-from scheduling.generator import Schedule, ScheduleError, generate_schedule
-
-
-def _get_error_message(result: Schedule | ScheduleError) -> str:
-    """Extract error message from result, with fallback for unknown errors."""
-    return getattr(result, "error_message", "Unknown error")
+from scheduling.generator import generate_schedule
 
 
 def create_test_data(
@@ -108,7 +103,7 @@ class TestPerformance:
         )
 
         start_time = time.time()
-        result = generate_schedule(shifts, workers, preferences, constraints)
+        assignments = generate_schedule(shifts, workers, preferences, constraints)
         generation_time = time.time() - start_time
 
         # Should complete quickly at medium scale
@@ -118,12 +113,7 @@ class TestPerformance:
         )
 
         # Medium scale should always succeed
-        assert isinstance(result, Schedule), (
-            f"Medium scale failed unexpectedly: {_get_error_message(result)}"
-        )
-        assert len(result.assignments) > 0, (
-            "Should generate assignments at medium scale"
-        )
+        assert len(assignments) > 0, "Should generate assignments at medium scale"
 
     def test_small_scale_performance(self) -> None:
         """Test performance at small scale: 20 workers, 50 shifts."""
@@ -134,7 +124,7 @@ class TestPerformance:
         )
 
         start_time = time.time()
-        result = generate_schedule(shifts, workers, preferences, constraints)
+        assignments = generate_schedule(shifts, workers, preferences, constraints)
         generation_time = time.time() - start_time
 
         # Should complete very quickly at small scale
@@ -144,10 +134,7 @@ class TestPerformance:
         )
 
         # Small scale should always succeed
-        assert isinstance(result, Schedule), (
-            f"Small scale failed: {_get_error_message(result)}"
-        )
-        assert len(result.assignments) > 0, "Should generate assignments at small scale"
+        assert len(assignments) > 0, "Should generate assignments at small scale"
 
     def test_high_demand_scenario_performance(self) -> None:
         """Test performance with high shift-to-worker ratio scenario."""
@@ -160,7 +147,7 @@ class TestPerformance:
         )
 
         start_time = time.time()
-        result = generate_schedule(shifts, workers, preferences, constraints)
+        assignments = generate_schedule(shifts, workers, preferences, constraints)
         generation_time = time.time() - start_time
 
         # Should complete within reasonable time for high-demand scenario
@@ -170,17 +157,14 @@ class TestPerformance:
         )
 
         # High demand scenario should succeed with proper constraints
-        assert isinstance(result, Schedule), (
-            f"High demand scenario failed: {_get_error_message(result)}"
-        )
-        assert len(result.assignments) > 0, "Should have assignments"
+        assert len(assignments) > 0, "Should have assignments"
 
         # Verify each shift meets minimum requirement
         for shift in shifts:
-            shift_assignments = [a for a in result.assignments if a.shift == shift]
-            assert len(shift_assignments) >= constraints.min_workers_per_shift, (
-                f"Shift {shift.id} has {len(shift_assignments)}, "
-                f"need {constraints.min_workers_per_shift}"
+            shift_assignments = [a for a in assignments if a.shift == shift]
+            min_required = max(constraints.min_workers_per_shift, shift.min_workers)
+            assert len(shift_assignments) >= min_required, (
+                f"Shift {shift.id} has {len(shift_assignments)}, need {min_required}"
             )
 
     def test_target_scale_performance(self) -> None:
@@ -192,7 +176,7 @@ class TestPerformance:
         )
 
         start_time = time.time()
-        result = generate_schedule(shifts, workers, preferences, constraints)
+        assignments = generate_schedule(shifts, workers, preferences, constraints)
         generation_time = time.time() - start_time
 
         # Performance expectations - allow up to 60s for full scale
@@ -202,14 +186,11 @@ class TestPerformance:
         )
 
         # Target scale should always succeed - this is our performance target
-        assert isinstance(result, Schedule), (
-            f"Algorithm failed at target scale: {_get_error_message(result)}"
-        )
-        assert len(result.assignments) > 0, "No assignments were generated"
+        assert len(assignments) > 0, "No assignments were generated"
 
         # Calculate basic statistics for validation
-        shifts_filled = len({a.shift for a in result.assignments})
-        workers_assigned = len({a.worker for a in result.assignments})
+        shifts_filled = len({a.shift for a in assignments})
+        workers_assigned = len({a.worker for a in assignments})
 
         # Basic sanity checks
         assert shifts_filled > 0, "No shifts were filled"

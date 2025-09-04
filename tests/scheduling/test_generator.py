@@ -2,9 +2,10 @@
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from scheduling.domain import SchedulingConstraints, WorkerPreference
 from scheduling.generator import (
-    Schedule,
     ScheduleError,
     _shifts_overlap,
     generate_schedule,
@@ -53,15 +54,14 @@ class TestScheduleGeneration:
 
         # Generate schedule with default constraints
         constraints = _create_default_constraints()
-        result = generate_schedule(shifts, workers, preferences, constraints)
+        assignments = generate_schedule(shifts, workers, preferences, constraints)
 
         # Should succeed
-        assert isinstance(result, Schedule)
         expected_assignments = 2
-        assert len(result.assignments) == expected_assignments
+        assert len(assignments) == expected_assignments
 
         # Verify assignments match preferences
-        assignment_pairs = [(a.worker.id, a.shift.id) for a in result.assignments]
+        assignment_pairs = [(a.worker.id, a.shift.id) for a in assignments]
         assert ("w1", "s1") in assignment_pairs
         assert ("w2", "s2") in assignment_pairs
 
@@ -157,12 +157,11 @@ class TestOverlappingShiftValidation:
 
         # Generate schedule
         constraints = _create_default_constraints()
-        result = generate_schedule(shifts, workers, preferences, constraints)
+        assignments = generate_schedule(shifts, workers, preferences, constraints)
 
         # Should succeed via fallback assignment
-        assert isinstance(result, Schedule)
         expected_min_assignments = 2
-        assert len(result.assignments) >= expected_min_assignments
+        assert len(assignments) >= expected_min_assignments
 
     def test_schedule_impossible_constraints(self) -> None:
         """Test scheduling with impossible constraints."""
@@ -179,8 +178,10 @@ class TestOverlappingShiftValidation:
 
         # Impossible constraints - need 3 workers but only have 1
         constraints = _create_default_constraints(min_workers_per_shift=3)
-        result = generate_schedule(shifts, workers, preferences, constraints)
 
-        # Should return ScheduleError
-        assert isinstance(result, ScheduleError)
-        assert "Could not meet minimum worker requirements" in result.error_message
+        # Should raise ScheduleError
+        with pytest.raises(
+            ScheduleError,
+            match="Could not meet minimum worker requirements",
+        ):
+            generate_schedule(shifts, workers, preferences, constraints)

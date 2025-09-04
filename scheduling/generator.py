@@ -13,19 +13,30 @@ from .domain import (
 )
 
 
-@dataclass
-class Schedule:
-    """A successfully generated schedule."""
-
-    assignments: list[Assignment]
-
-
-@dataclass
-class ScheduleError:
+class ScheduleError(Exception):
     """Error when schedule generation fails."""
 
-    unassigned_shifts: list[Shift]
-    error_message: str
+    def __init__(self, unassigned_shifts: list[Shift], message: str) -> None:
+        """Initialize ScheduleError with unassigned shifts and error message."""
+        self.unassigned_shifts = unassigned_shifts
+        super().__init__(message)
+
+
+@dataclass
+class SchedulingState:
+    """Current state of the scheduling algorithm."""
+
+    assignments: list[Assignment]
+    shift_assignments: dict[Shift, list[Assignment]]
+    worker_assignments: dict[Worker, list[Assignment]]
+
+    @property
+    def worker_assignment_counts(self) -> dict[Worker, int]:
+        """Get count of assignments per worker."""
+        return {
+            worker: len(assignments)
+            for worker, assignments in self.worker_assignments.items()
+        }
 
 
 def generate_schedule(
@@ -33,7 +44,7 @@ def generate_schedule(
     workers: list[Worker],
     preferences: list[WorkerPreference],
     constraints: SchedulingConstraints,
-) -> Schedule | ScheduleError:
+) -> list[Assignment]:
     """Generate a schedule prioritizing worker preferences while meeting constraints.
 
     Algorithm:
@@ -52,7 +63,10 @@ def generate_schedule(
         constraints: Scheduling constraints and rules
 
     Returns:
-        Schedule on success, ScheduleError on failure
+        List of assignments
+
+    Raises:
+        ScheduleError: When minimum requirements cannot be met
     """
     assignments: list[Assignment] = []
 
@@ -119,10 +133,15 @@ def generate_schedule(
 
     # Second phase: Try to assign any available workers to unassigned shifts
     if unassigned_shifts:
+        state = SchedulingState(
+            assignments=assignments,
+            shift_assignments=shift_assignments,
+            worker_assignments=worker_assignments,
+        )
         unassigned_shifts = _fallback_assignment(
             workers,
             constraints,
-            (assignments, shift_assignments, worker_assignments),
+            state,
             unassigned_shifts,
         )
 
@@ -132,12 +151,9 @@ def generate_schedule(
         error_message = (
             f"Could not meet minimum worker requirements for shifts: {shift_names}"
         )
-        return ScheduleError(
-            unassigned_shifts=unassigned_shifts,
-            error_message=error_message,
-        )
+        raise ScheduleError(unassigned_shifts, error_message)
 
-    return Schedule(assignments=assignments)
+    return assignments
 
 
 def _can_assign_worker(
@@ -183,10 +199,11 @@ def _find_available_workers(
     shift: Shift,
     current_count: int,
     constraints: SchedulingConstraints,
-    worker_data: tuple[dict[Worker, int], dict[Worker, list[Assignment]]],
+    state: SchedulingState,
 ) -> list[tuple[int, Worker]]:
     """Find workers available for assignment to a shift."""
-    worker_assignment_counts, worker_assignments = worker_data
+    worker_assignment_counts = state.worker_assignment_counts
+    worker_assignments = state.worker_assignments
     available_workers = []
     for worker in workers:
         # Quick checks first before expensive overlap check
@@ -214,23 +231,19 @@ def _find_available_workers(
 def _fallback_assignment(
     workers: list[Worker],
     constraints: SchedulingConstraints,
-    assignment_data: tuple[
-        list[Assignment],
-        dict[Shift, list[Assignment]],
-        dict[Worker, list[Assignment]],
-    ],
+    state: SchedulingState,
     unassigned_shifts: list[Shift],
 ) -> list[Shift]:
     """Try to assign workers to shifts that couldn't be filled by preferences."""
     if not unassigned_shifts:
         return []
 
-    assignments, shift_assignments, worker_assignments = assignment_data
+    assignments = state.assignments
+    shift_assignments = state.shift_assignments
+    worker_assignments = state.worker_assignments
 
-    # Pre-compute worker assignment counts
-    worker_assignment_counts = {
-        worker: len(worker_assignments[worker]) for worker in workers
-    }
+    # Get worker assignment counts
+    worker_assignment_counts = state.worker_assignment_counts
 
     remaining_unassigned = []
 
@@ -243,12 +256,18 @@ def _fallback_assignment(
             continue
 
         # Find available workers for this shift
+        # Create state object for finding available workers
+        temp_state = SchedulingState(
+            assignments=assignments,
+            shift_assignments=shift_assignments,
+            worker_assignments=worker_assignments,
+        )
         available_workers = _find_available_workers(
             workers,
             shift,
             current_count,
             constraints,
-            (worker_assignment_counts, worker_assignments),
+            temp_state,
         )
 
         # Sort by current assignment count (least loaded first)
