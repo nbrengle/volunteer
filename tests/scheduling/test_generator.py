@@ -47,9 +47,9 @@ class TestScheduleGeneration:
         shift2 = ShiftBuilder().with_id("s2").with_duration_hours(14, 3).build()
         shifts = [shift1, shift2]
 
-        # Add preferences
-        pref1 = WorkerPreference(worker=worker1, shift=shift1, preference_level=5)
-        pref2 = WorkerPreference(worker=worker2, shift=shift2, preference_level=4)
+        # Add preferences (lower values = stronger preference)
+        pref1 = WorkerPreference(worker=worker1, shift=shift1, preference_level=1)
+        pref2 = WorkerPreference(worker=worker2, shift=shift2, preference_level=2)
         preferences = [pref1, pref2]
 
         # Generate schedule with default constraints
