@@ -3,8 +3,6 @@
 from datetime import UTC, datetime, timedelta
 
 from scheduling.domain import (
-    Conference,
-    ConferenceConfig,
     Shift,
     ShiftRequirement,
     Worker,
@@ -13,63 +11,6 @@ from scheduling.domain import (
 # Test identifiers
 TEST_WORKER_ID = "worker_001"
 TEST_SHIFT_ID = "shift_001"
-TEST_CONFERENCE_ID = "test-conf"
-
-
-class ConferenceBuilder:
-    """Builder for creating test conferences with sensible defaults."""
-
-    def __init__(self) -> None:
-        """Initialize conference builder with defaults."""
-        self.conference_id = TEST_CONFERENCE_ID
-        self.name = "Test Conference"
-        self.config = ConferenceConfig(
-            start_time=datetime(2024, 6, 1, 8, 0, tzinfo=UTC),
-            duration_days=1,
-            min_workers_per_shift=1,
-            max_workers_per_shift=3,
-            min_shifts_per_worker=1,
-            max_shifts_per_worker=5,
-        )
-
-    def with_id(self, conference_id: str) -> "ConferenceBuilder":
-        """Set the conference ID."""
-        self.conference_id = conference_id
-        return self
-
-    def with_name(self, name: str) -> "ConferenceBuilder":
-        """Set the conference name."""
-        self.name = name
-        return self
-
-    def with_config(self, config: ConferenceConfig) -> "ConferenceBuilder":
-        """Set the conference config."""
-        self.config = config
-        return self
-
-    def with_simple_config(
-        self,
-        max_shifts_per_worker: int = 5,
-        max_workers_per_shift: int = 3,
-    ) -> "ConferenceBuilder":
-        """Set simple config parameters."""
-        self.config = ConferenceConfig(
-            start_time=datetime(2024, 6, 1, 8, 0, tzinfo=UTC),
-            duration_days=1,
-            min_workers_per_shift=1,
-            max_workers_per_shift=max_workers_per_shift,
-            min_shifts_per_worker=1,
-            max_shifts_per_worker=max_shifts_per_worker,
-        )
-        return self
-
-    def build(self) -> Conference:
-        """Build the conference."""
-        return Conference(
-            id=self.conference_id,
-            name=self.name,
-            config=self.config,
-        )
 
 
 class WorkerBuilder:

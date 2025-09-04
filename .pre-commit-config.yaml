@@ -36,3 +36,15 @@ repos:
         types: [python]
         entry: uv run pytest
         pass_filenames: false
+      - id: no-noqa
+        name: Check for noqa comments
+        entry: bash -c '! grep -E "# ?noqa" "$@"' --
+        language: system
+        files: \.py$
+        description: 'Fails if any # noqa comments are found.'
+      - id: type-ignore
+        name: Check for type-ignore comments
+        entry: bash -c '! grep -E "# ?type-ignore" "$@"' --
+        language: system
+        files: \.py$
+        description: 'Fails if any # type-ignore comments are found.'
