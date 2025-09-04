@@ -57,7 +57,7 @@ class WorkerPreference:
 
     worker: Worker
     shift: Shift
-    preference_level: int  # Higher values indicate stronger preference
+    preference_level: int  # Lower values indicate stronger preference
 
 
 @dataclass(frozen=True)
@@ -67,13 +67,3 @@ class Assignment:
     worker: Worker
     shift: Shift
     created_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
-
-
-@dataclass
-class AssignmentResult:
-    """Result of attempting to assign a worker to a shift."""
-
-    success: bool
-    worker_id: str
-    shift_id: str
-    error_reason: str | None

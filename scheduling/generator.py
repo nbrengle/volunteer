@@ -98,8 +98,7 @@ def generate_schedule(
         preferred_workers = sorted(
             shift_preferences,
             key=lambda p: p.preference_level,
-            reverse=True,  # Highest preference first
-        )
+        )  # Lowest preference level first (strongest preference)
 
         # Try to assign workers until minimum is met
         for preference in preferred_workers:
@@ -200,8 +199,8 @@ def _find_available_workers(
     current_count: int,
     constraints: SchedulingConstraints,
     state: SchedulingState,
-) -> list[tuple[int, Worker]]:
-    """Find workers available for assignment to a shift."""
+) -> list[Worker]:
+    """Find workers available for assignment to a shift, sorted by current load."""
     worker_assignment_counts = state.worker_assignment_counts
     worker_assignments = state.worker_assignments
     available_workers = []
@@ -223,8 +222,10 @@ def _find_available_workers(
         if has_overlap:
             continue
 
-        available_workers.append((worker_assignment_counts[worker], worker))
+        available_workers.append(worker)
 
+    # Sort by current assignment count (least loaded first)
+    available_workers.sort(key=lambda w: worker_assignment_counts[w])
     return available_workers
 
 
@@ -256,26 +257,17 @@ def _fallback_assignment(
             continue
 
         # Find available workers for this shift
-        # Create state object for finding available workers
-        temp_state = SchedulingState(
-            assignments=assignments,
-            shift_assignments=shift_assignments,
-            worker_assignments=worker_assignments,
-        )
         available_workers = _find_available_workers(
             workers,
             shift,
             current_count,
             constraints,
-            temp_state,
+            state,
         )
-
-        # Sort by current assignment count (least loaded first)
-        available_workers.sort(key=lambda x: x[0])
 
         # Assign workers until minimum requirement is met (limited by available workers)
         workers_to_assign = min(workers_needed, len(available_workers))
-        for _, worker in available_workers[:workers_to_assign]:
+        for worker in available_workers[:workers_to_assign]:
             assignment = Assignment(worker=worker, shift=shift)
             assignments.append(assignment)
             shift_assignments[shift].append(assignment)
