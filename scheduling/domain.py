@@ -6,20 +6,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 
-@dataclass(frozen=True)
-class ShiftRequirement:
-    """A specific worker requirement for a shift.
-
-    Represents one type of worker needed for a shift, such as "AV Tech" or "Security".
-    A single shift can have multiple requirements for different types of workers.
-    """
-
-    required_skills: set[str]
-    min_workers: int
-    max_workers: int
-    description: str = ""
-
-
 @dataclass
 class SchedulingConstraints:
     """Constraints that govern the scheduling algorithm behavior.
@@ -43,25 +29,18 @@ class SchedulingConstraints:
 class Shift:
     """Represents a work shift with time, location, and worker requirements.
 
-    A shift represents a single event that may require multiple types of workers.
-    Each requirement specifies different skills and worker counts needed.
+    A shift represents a single, homogeneous type of work requiring workers
+    with specific skills and capacity constraints.
     """
 
     id: str
     start_time: datetime
     end_time: datetime
     location: str
-    requirements: list[ShiftRequirement] = field(default_factory=list, hash=False)
-
-    @property
-    def total_min_workers(self) -> int:
-        """Total minimum workers needed across all requirements."""
-        return sum(req.min_workers for req in self.requirements)
-
-    @property
-    def total_max_workers(self) -> int:
-        """Total maximum workers allowed across all requirements."""
-        return sum(req.max_workers for req in self.requirements)
+    required_skills: set[str] = field(default_factory=set, hash=False)
+    min_workers: int = 1
+    max_workers: int = 1
+    role_description: str = ""
 
 
 @dataclass(frozen=True)
@@ -84,11 +63,10 @@ class WorkerPreference:
 
 @dataclass(frozen=True)
 class Assignment:
-    """Represents an assignment of a worker to a specific requirement within a shift."""
+    """Represents an assignment of a worker to a shift."""
 
     worker: Worker
     shift: Shift
-    requirement: ShiftRequirement
     created_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
 
 

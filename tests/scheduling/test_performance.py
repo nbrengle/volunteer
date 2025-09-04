@@ -7,7 +7,6 @@ from random import Random
 from scheduling.domain import (
     SchedulingConstraints,
     Shift,
-    ShiftRequirement,
     Worker,
     WorkerPreference,
 )
@@ -61,19 +60,12 @@ def create_test_data(
         # Random capacity between 1 and max_workers_per_shift
         capacity = rng.randint(1, max_workers_per_shift)
 
-        # Create a default requirement that mimics the old max_workers behavior
-        requirement = ShiftRequirement(
-            required_skills=set(),
-            min_workers=1,
-            max_workers=capacity,
-            description="Performance test requirement",
-        )
         shift = Shift(
             id=f"shift_{i:04d}",
             start_time=shift_start,
             end_time=shift_end,
             location=f"Room {i % 50}",  # 50 different rooms
-            requirements=[requirement],
+            max_workers=capacity,
         )
         shifts.append(shift)
 

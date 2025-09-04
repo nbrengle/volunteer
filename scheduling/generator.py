@@ -65,7 +65,7 @@ def generate_schedule(
     # Sort shifts by capacity (smallest capacity = most constrained first)
     shifts_to_fill = sorted(
         shifts,
-        key=lambda s: s.total_max_workers,
+        key=lambda s: s.max_workers,
     )
 
     unassigned_shifts = []
@@ -97,15 +97,9 @@ def generate_schedule(
                 worker,
                 shift,
             ):
-                # For now, assign to the first requirement of the shift
-                # NOTE: Future enhancement - implement proper requirement matching logic
-                requirement = shift.requirements[0] if shift.requirements else None
-                if requirement is None:
-                    continue  # Skip shifts with no requirements
                 assignment = Assignment(
                     worker=worker,
                     shift=shift,
-                    requirement=requirement,
                 )
                 assignments.append(assignment)
                 shift_assignments[shift].append(assignment)
@@ -175,7 +169,7 @@ def _can_assign_worker(
 
     # Check shift capacity
     shift_assignment_list = shift_assignments[shift]
-    if len(shift_assignment_list) >= shift.total_max_workers:
+    if len(shift_assignment_list) >= shift.max_workers:
         return False
 
     # Check if already assigned
@@ -214,7 +208,7 @@ def _find_available_workers(
             continue
 
         # Check shift capacity
-        if current_count >= shift.total_max_workers:
+        if current_count >= shift.max_workers:
             break  # Shift is full
 
         # Check for overlaps
@@ -275,11 +269,7 @@ def _fallback_assignment(
 
         # Assign workers until minimum requirement is met
         for _, worker in available_workers[:workers_needed]:  # Only take what we need
-            # For now, assign to the first requirement of the shift
-            requirement = shift.requirements[0] if shift.requirements else None
-            if requirement is None:
-                continue  # Skip shifts with no requirements
-            assignment = Assignment(worker=worker, shift=shift, requirement=requirement)
+            assignment = Assignment(worker=worker, shift=shift)
             assignments.append(assignment)
             shift_assignments[shift].append(assignment)
             worker_assignments[worker].append(assignment)
